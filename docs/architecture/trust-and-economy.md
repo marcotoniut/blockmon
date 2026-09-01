@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.2** — boundaries and requirements stable; mechanisms marked provisional inline |
-| **Last reviewed** | 2026-08-11 |
+| **Status** | **v0.3**, boundaries and requirements stable; mechanisms marked provisional inline; battle-channel amendment 2026-09-01 |
+| **Last reviewed** | 2026-09-01 |
 | **Owns** | Physical truth boundary, Discovery Authority, permit lifecycle, value-creation matrix, issuance envelope and capabilities, privacy, participation/automation residuals, sponsored-fee exhaustion, physical/economic attack model |
 | **Depends on** | `architecture.md` §§6-7, 16 and `protocol.md` §§5-6 (not restated) |
 
@@ -59,7 +59,7 @@ The three-shape invariant (`architecture.md` §6) instantiated; this table is ex
 | Breeding | (a) two owned parents + (b) breeding-class capability | no |
 | Progression reward, non-transferable | envelope-bounded simulation delta; no issuance | no |
 | Progression reward, transferable | (b) pre-committed epoch reward pool, deterministic distribution | no |
-| Tournament reward | (a) escrowed stakes or (b) pre-committed pool; results fraud-provable | no |
+| Tournament reward | (a) escrowed stakes: results dual-authorised (channel) or fraud-provable; (b) pre-committed pool: results fraud-provable only, since dual authorisation cannot gate third-party funds, two colluding participants would drain the pool (`battle-channel.md` §7 blast radius) | no |
 | Market incentive | (b) pre-committed pool | no |
 | Future event reward | (b) allocation from the envelope via protected upgrade path | no |
 

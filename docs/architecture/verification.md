@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.2** — requirements stable; verification mechanisms experimental by design |
-| **Last reviewed** | 2026-08-11 |
+| **Status** | **v0.3**, requirements stable; verification mechanisms experimental by design; battle-channel amendment 2026-09-01 |
+| **Last reviewed** | 2026-09-01 |
 | **Owns** | Conformance model, canonical verification machine, verification maturity/modes, claim/challenge state machine, corrections and derived state, DA mechanics, recovery/relaunch/succession, exits, liveness, verifier resource budgets |
 | **Depends on** | `architecture.md`, `protocol.md` (invariants and semantics; not restated) |
 
@@ -17,6 +17,7 @@ Verification targets split along the kernel/simulation boundary (`architecture.m
 
 - **Constitutional kernel**: small enough for independent reimplementation and, eventually, validity proofs. Its guarantees are the constitutional ones.
 - **Deterministic simulation layer**: replayable and fraud-provable indefinitely; validity-proving full simulation is not assumed on any timeline. Envelopes bound whatever verification has not yet covered.
+- **Battle channels**: cooperative close is verified by mutual signature, the same trust shape as a bilateral trade; hidden-state legality by commitments plus reveal or dispute evidence; full replay occurs only in dispute (`battle-channel.md` §§4-6).
 
 The transition function never changes across verification stages or modes; only the acceptance rule for claimed roots changes.
 

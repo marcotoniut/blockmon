@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.1** — invariants frozen; items marked OPEN are the protocol-specification docket |
-| **Last reviewed** | 2026-08-11 |
+| **Status** | **v0.2**, invariants frozen; items marked OPEN are the protocol-specification docket; battle-channel amendment 2026-09-01 |
+| **Last reviewed** | 2026-09-01 |
 | **Owns** | Canonical state/encoding, transition semantics, ordering and receipts, entropy, capabilities, finality, ordering policies, manifests, conservation, migration, checkpoints, exit semantics, envelopes |
 | **Depends on** | `architecture.md` (invariants; not restated) |
 
@@ -17,7 +17,8 @@ Vocabulary note, stated once: a **subject** is a protocol identity (a key), neve
 
 - WorldState decomposes into typed sub-states with canonical, versioned encodings. Ratified domains: **subject (player), Blockmon, encounter, supply/capability**. Marketplace and tournament domains are anticipated, unratified (register Q9).
 - Sub-states hash into an authenticated state tree producing `world_root`. The settled artefact is conceptually `{world_root, protocol_manifest_hash, verification_manifest_hash, supply_commitment, epoch}`.
-- OPEN (spec docket): exact encodings, tree structure, hash function. The hash choice is a ProtocolManifest field: pin provisionally for the prototype, replaceable via migration (§11).
+- Primitive/record encodings and the protocol hash (SHA-256 with length-prefixed domain separation) are **provisionally pinned** in `canonical-encoding.md`, exercised by the G0a corpus (`conformance/vectors/`), and replaceable via migration (§11). The hash choice is a ProtocolManifest field.
+- OPEN (spec docket): authenticated state-tree structure (Transition 1 scope); canonical encodings for kernel objects beyond the battle-channel transcript set.
 
 ## 2. Transition Function and Determinism Contract
 
@@ -62,7 +63,7 @@ REQUIRED semantics:
 - **Resolution is reveal-free for the subject**: nothing remains for the subject to disclose after commitment; outcomes compute automatically from the published round.
 - **Outage**: a halted source delays resolution; round indices are fixed at commitment, and a resumed source yields identical values: no reroll, ever. Permanent source failure routes to a manifest-versioned successor (register Q13); pending actions across a source succession is the one place resolution may require a governance act.
 - **Domain separation**: seeds derive per domain from (assigned round value, commitment data, manifest); actual domains follow ratified game semantics.
-- Sealed submission (e.g. timelock encryption to the assigned round) is the reference shape for simultaneous PvP; it removes reveal steps and sequencer peeking.
+- Sealed submission (e.g. timelock encryption to the assigned round) is the reference shape for simultaneous PvP resolved on the canonical path; it removes reveal steps and sequencer peeking. Channelised battles must resolve simultaneity and hidden information inside the channel; the mechanism is OPEN (`battle-channel.md` §7, register Q15/Q17/Q18). Until it is ratified, channel operations are strictly sequenced (`battle-channel.md` §4), which concedes last-mover information; rulesets whose fairness depends on simultaneity or hidden information may not be wagered in channels before Q15/Q17/Q18 close.
 - Trust note: threshold collusion at the source breaks unpredictability silently (never bias); blast radius is bounded by capabilities and envelopes; dual-source mixing is optional hardening (Q14).
 
 ## 6. Capabilities: Reservation and Disposition
@@ -86,7 +87,7 @@ REQUIRED:
 REQUIRED consumption matrix (minimum level per action class):
 
 - own-subject gameplay (battles, progression, evolution): **Sequenced** (self-verifiable; the client computes the same function);
-- cross-subject value interaction (trade, wagered PvP settlement, breeding with another subject's creature, staked tournament entry): **Input-final**, at which point counterparties can verify claimed state themselves by replay;
+- cross-subject value interaction (trade, wagered battle settlement, breeding with another subject's creature, staked tournament entry): **Input-final**, at which point counterparties can verify claimed state themselves by replay. For a channelised battle the command is the dual-signed final checkpoint (`battle-channel.md` §5);
 - external export, exit, prize withdrawal to external rails: **Output-final**.
 
 Corrections: a successful challenge replaces claimed outputs by deterministic re-execution of the permanent input sequence; descendants re-derive through their defined-failure branches. Derived-view reconciliation semantics: `verification.md` §6.
@@ -99,7 +100,8 @@ Every economic transition class must register an ordering policy verifiable from
 |---|---|
 | P2P trade | bilateral signed intents (terms + expiry signed by both; ordering can delay, not alter) |
 | Auction (if ratified) | sealed bids to a deadline round; deterministic resolution |
-| Simultaneous PvP | sealed commands (§5) |
+| Simultaneous PvP (canonical path) | sealed commands (§5) |
+| Wagered battle settlement (channel) | dual-signed final checkpoint: a bilateral signed intent (ordering can delay, not alter); supersession by sequence (`battle-channel.md` §§4-5); limited to rulesets whose fairness does not depend on simultaneity or hidden information until Q15/Q17/Q18 close (§5) |
 | Scarce registration (tournaments) | window + entropy lottery over valid entries |
 | Scarce encounters | instanced per subject (no contended object) |
 | Exits | not price-sensitive; censorship bound suffices |
@@ -165,10 +167,16 @@ OPEN: cancellation of an unmaterialised intent; concrete external representation
 
 ## 14. Envelope Semantics
 
-Simulation-layer deltas enter the kernel only through declared envelopes carrying per-event bounds and per-subject-per-period rate/aggregate bounds. Out-of-envelope deltas resolve to defined rejection. Envelopes are blast-radius bounds, not correctness claims (`architecture.md` §4). OPEN: aggregate state-growth envelope (register Q12).
+Simulation-layer deltas enter the kernel only through declared envelopes carrying per-event bounds and per-subject-per-period rate/aggregate bounds; dual-signed channel results are simulation-layer deltas for this purpose. Out-of-envelope deltas resolve to defined rejection. Envelopes are blast-radius bounds, not correctness claims (`architecture.md` §4). OPEN: aggregate state-growth envelope (register Q12).
 
 ---
 
-## Specification docket (must precede prototype implementation)
+## Specification docket
 
-Canonical encoding spec; kernel transition spec for the representative transition (including capture roll and creation arithmetic); entropy assignment constants and reveal-availability mechanism choice; receipt format; manifest field encodings; finality state machine as written tables; checkpoint/snapshot chunk format; conformance vector format with conservation assertions. Everything else in this document marked OPEN is either deferred by design or an implementation choice.
+Each item must be written before the first transition, gate or artefact that exercises it; nothing may be defined post hoc by reference-kernel behaviour, or G0c's independent implementation cannot reproduce it.
+
+Satisfied for Transition 1 by `canonical-encoding.md` (provisional pins, conformance obligation §9 governs change): canonical encoding spec; kernel transition spec for the representative transition (capture roll and creation arithmetic, §6 there); entropy assignment constants; manifest field encodings; conformance vector format with conservation assertions.
+
+Still unwritten, not exercised by Transition 1, and blocking on first use: reveal-availability mechanism choice (the kernel takes the authenticated round value as input); receipt format; finality state machine as written tables; checkpoint/snapshot chunk format. Everything else in this document marked OPEN is either deferred by design or an implementation choice.
+
+Slice B (`prototype-and-technology.md` §2) does not wait for this docket: it needs only provisional channel operation/checkpoint/authorisation encodings, owned by `battle-channel.md` and pinned provisionally like any Gate 0 placeholder.

@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | **v0.3** — gate categories frozen; numeric thresholds are measurement targets, not architecture truths; no technology selected |
-| **Last reviewed** | 2026-08-11 |
-| **Owns** | Acceptance gates (canonical definitions), experiments, cost-model method, candidate evaluation, eligibility procedure |
+| **Status** | **v0.4**, gate categories frozen; numeric thresholds are measurement targets, not architecture truths; no technology selected; re-sequenced 2026-09-01: the battle-channel E2E slice (§2) precedes Transition 1 |
+| **Last reviewed** | 2026-09-01 |
+| **Owns** | Current implementation priority (§2), acceptance gates (canonical definitions), experiments, cost-model method, candidate evaluation, eligibility procedure |
 | **Depends on** | All other documents (requirements; not restated). Superseded by the architecture-choice ADR once recorded |
 
 The prototype is the smallest experiment capable of **disproving** the architecture, not a miniature production system. Gates establish viability; selection is comparative.
@@ -14,15 +14,112 @@ The prototype is the smallest experiment capable of **disproving** the architect
 ## 1. Prototype Transitions
 
 - **Transition 0 (throwaway infrastructure smoke)**: trivial state transition proving build targets, canonical encoding, hashing, candidate-machine integration, basic replay. Failures here are infrastructure, not semantics.
-- **Transition 1 (the acceptance transition)**: permit reservation and consumption, assigned entropy, kernel capture roll, capability consumption, new creature in the authenticated tree, root update. Exercises discovery boundary, entropy ordering, determinism, state authentication, supply accounting and settlement in one path.
+- **Slice B (battle-channel E2E, the immediate target)**: the smallest end-to-end proof of the integration boundaries: minimal representative deterministic transition, canonical encoding/hash/commitment, battle anchoring, session-secret derivation, one channel exchange, dual-signed checkpoint, cooperative settlement on a local chain, negative paths. Defined in §2. Slice B proves seams, not the constitution: DA, escape, issuance and succession remain gated by G4, G6, G7 and the experiments.
+- **Transition 1 (the acceptance transition)**: permit reservation and consumption, assigned entropy, kernel capture roll, capability consumption, new creature in the authenticated tree, root update. Exercises discovery boundary, entropy ordering, determinism, state authentication, supply accounting and settlement in one path. Status: kernel implemented in `protocol/kernel` against `canonical-encoding.md` §6 (flat root stand-in; tree still OPEN), invariant suite green, kernel-backed vectors in the G0a corpus. Sequencing, DA and settlement integration remain the experiments' scope.
 - Prototype batches are **region-scoped**; cross-region ordering is out of scope and this scoping is declared so DA/sequencing measurements are read against the right requirement.
 
-## 2. Acceptance Gates
+## 2. Current Priority: the Battle-Channel E2E Slice
+
+**The current goal is not to build a real Odin game client.** The immediate target is a barebones, end-to-end provable architecture running against a local test chain, with the Odin side kept to the absolute minimum necessary to prove the integration boundaries.
+
+### 2.1 Scope
+
+The slice contains, and deliberately little else:
+
+- a deterministic kernel stub or minimal representative transition;
+- canonical encoding/hash/commitment behaviour (its fixtures seed the G0a vectors);
+- a local test chain trivial to start, reset and inspect (§2.3);
+- a minimal settlement contract implementing the thin verifier (`battle-channel.md` §5), standing in for the canonical layer (`battle-channel.md` §1);
+- battle creation/opening; anchoring participants and wallet-authorised ephemeral battle public keys;
+- off-chain derivation of the battle session secret by both participants;
+- one representative signed, hash-chained channel exchange;
+- one dual-signed checkpoint or final result;
+- cooperative on-chain settlement;
+- the negative paths of §2.4;
+- deterministic E2E tests proving the complete round trip.
+
+### 2.2 The Odin probe
+
+A **protocol probe, not a game client**: a tiny CLI/test harness capable only of constructing or loading deterministic test state; generating the ephemeral battle material the protocol requires; deriving the battle session secret; producing the representative signed/committed operation; talking to the local chain through the smallest practical RPC/ABI layer; submitting or observing settlement; asserting final state.
+
+Battle-channel primitives (X25519, Ed25519, HKDF, SHA-2/BLAKE2b, AEAD) exist in Odin's `core:crypto`. Wallet and chain cryptography is **not** implemented in Odin: the probe delegates signing to an external signer/test-key helper (e.g. Foundry's `cast` over Anvil's deterministic accounts) behind a minimal adapter. `core:crypto` lacking secp256k1 and Ethereum Keccak-256 is therefore a settlement-adapter fact, not a kernel blocker (`architecture.md` §21).
+
+Excluded, deliberately: UI; networking beyond what the E2E requires; matchmaking; real game loops; production wallet UX; account management; broad ABI/RPC abstractions; reusable client frameworks; speculative battle features; hand-rolled chain cryptography.
+
+Generalisation constraint: the Solidity contract, Odin chain interface, ABI handling and Foundry harness are built only to what the slice exercises. Hard-coded, test-specific plumbing is preferred wherever the alternative is the accidental beginning of a production blockchain SDK or game client. The only artefacts written for reuse are the protocol fixtures and vectors, which feed G0 and the real kernel.
+
+### 2.3 Local chain tooling
+
+Chosen for the slice: **Foundry (Anvil + Forge + Cast)**, not yet installed locally. Against the requirements: one-command startup (`anvil`); deterministic funded accounts (fixed mnemonic); instant reset (restart, or `anvil_reset`); fast deployment (`forge script`/`forge create`); block/time manipulation for timeout tests (`evm_increaseTime`, `anvil_mine`, `anvil_setNextBlockTimestamp`); static binaries with straightforward CI execution. Hardhat Network offers equivalent manipulation on a Node toolchain this repo otherwise has no use for; dev-mode geth lacks the ergonomics. This is slice scaffolding optimised for deterministic E2E, **not** technology selection; the comparative ADR (§5) is untouched by it.
+
+The on-chain verifier is written in the chain-native environment, for EVM most likely Solidity with small Yul/assembly sections only where justified (`battle-channel.md` §5). The battle simulator is never ported to Solidity for the prototype.
+
+### 2.4 E2E shape and negative paths
+
+```
+start anvil
+→ deploy minimal settlement contract
+→ create battle
+→ register/anchor participant battle public keys (wallet-authorised)
+→ A and B derive the battle session secret off-chain
+→ a few deterministic representative channel operations locally
+→ build/sign/hash-chain final checkpoint
+→ submit compact settlement
+→ contract validates and records outcome
+→ E2E asserts chain state and deterministic local state agree
+```
+
+Negative paths, cheapest first: **invalid signature rejected** and **duplicate settlement rejected** (pure Forge tests, near-free; both required); **stale checkpoint superseded**; **timeout settlement after advancing chain time** (needs the harness plus time manipulation; required unless it materially expands scope, as it is the only path exercising deadlines end to end).
+
+### 2.5 What the slice proves, and what it does not
+
+Proves: the cryptographic layer separation (`architecture.md` §21) is real at the code seams; canonical encoding/commitment determinism at small scale; the channel key hierarchy and session-secret establishment; the thin-verifier settlement boundary; O(1) cooperative settlement.
+
+Does not prove: DA, escape/continuity, issuance envelope, succession, dispute-at-depth, cost model, or any candidate ranking. Those remain owned by the gates and experiments, unchanged. Nor does it prove the eventual hidden-information protocol: the single shared session secret is a demonstration of establishment, and mental-poker-class constructions remain open (`battle-channel.md` §3 scope note; Q15/Q17/Q18).
+
+### 2.6 Dual-process extension
+
+The slice also runs as **two independent participant processes** over a loopback
+socket (`prototype/slice-b/battle.sh`; `just slice-b-battle-e2e` automated,
+`just slice-b-battle` manual). Same battle, same contract, same canonical code:
+each participant is its own program holding only its own ephemeral secrets, and
+learns everything else from anchored public state and the frames it receives.
+
+Each participant reads the anchored battle and the settled outcome from the chain
+itself, through a read-only `eth_call` path with pinned selectors for one contract
+(`architecture.md` §21: signing is delegated, reading is not). Wallet signing
+remains outside Odin, and §2.2's "smallest practical RPC/ABI layer" bounds the
+read path.
+
+Adds to §2.5's proves list: the public/secret boundary survives a process
+boundary rather than a function boundary; session establishment works between
+separate participants, authenticated by wallet-anchored ephemeral keys plus proof
+of possession; and the two-process transcript, checkpoint and channel signatures
+are byte-identical to the single-process probe's promoted vectors. The
+does-not-prove list stands unchanged, and this is **not** evidence for G0c: both
+processes share `protocol/canonical`, so it is one implementation running twice.
+
+### 2.7 Revised sequence
+
+```
+Slice B (E2E on local chain)                          ← now
+→ G0a smoke vectors (grown from slice fixtures)
+→ Transition 1 (capture path) + G0b fuzz
+→ G0c independent implementation; G0d reproducibility
+     (the Q11 reproducibility spike may run parallel to Slice B)
+→ experiments A-E and G1-G10 as previously sequenced
+```
+
+Slice checks prefigure G2 (native determinism at small scale), G5 (negative paths as an embryo of adversarial rejection) and G9 (the timeout analogue). Prefiguring is not passage; every gate still runs in full.
+
+## 3. Acceptance Gates
 
 ### G0 — Conformance (blocks everything)
 
-- **0a smoke**: 10³-10⁴ vectors including hand-built edge cases, byte-identical canonical transcripts and roots across x86-64/ARM64/RISC-V.
-- **0b hardening**: ≥10⁶ fuzzed transitions, same criterion; permanent CI gate.
+Scope note: G0 covers **protocol cryptography only** (`architecture.md` §21): canonical encoding, protocol hashing and domain separation, commitment/tree semantics, cross-target determinism, reproducible artefacts. Settlement-interface cryptography (chain signatures, chain hashes) is exercised by the slice and the chain adapters, never by G0; a chain's primitives being absent from the kernel language blocks neither G0 nor kernel work.
+
+- **0a smoke**: 10³-10⁴ vectors including hand-built edge cases, byte-identical canonical transcripts and roots across x86-64/ARM64/RISC-V. Status: the constitutional seed corpus, its Odin generator and an independent Python checker (derived from `canonical-encoding.md`, no shared code) live in `conformance/`; the corpus is deliberately small and high-signal, and scaling to the full vector count plus the tri-target execution matrix completes 0a.
+- **0b hardening**: ≥10⁶ fuzzed transitions, same criterion; permanent CI gate. Status: property/fuzz harness at `conformance/fuzz` (`just g0b`; raw-struct generators, independent model oracle, canonical-bytes equality, seed-reproducible); >8M transitions across four seeds, including the pinned default 0xB10C0DE5EED (12166583181037, shared by `just g0b` and the bare binary), pass with zero counterexamples. The permanent-CI-gate half is unmet: this repo has no CI yet.
 - **0c independent implementation**: a second kernel implementation built from the written spec (no reference-source reuse) matches canonical vectors.
 - **0d reproducible artefact**: third party rebuilds the canonical verification artefact bit-identically from source + pinned toolchain + recipe (register Q11). Includes the artefact-change drill: a toolchain bump must pass the conformance obligation (`protocol.md` §9) as a VerificationManifest-only change.
 - **All corpora assert the conservation identities** (`protocol.md` §10) in addition to equality. Cross-platform agreement alone cannot pass G0.
@@ -72,7 +169,7 @@ The corrupted-early-output scenario (`verification.md` §6) against a real mater
 
 Privacy-leakage assessment is deferred from the falsifying prototype to the production ADR (the minimisation design does not need a prototype to be falsified).
 
-## 3. Experiments
+## 4. Experiments
 
 Common to all: same kernel, same corpus, Transition 0 before Transition 1; early failure kills later work.
 
@@ -82,7 +179,7 @@ Common to all: same kernel, same corpus, Transition 0 before Transition 1; early
 - **D — Arbitrum/Nitro path**: D1 stock app-chain commitments + DA + escape economics; D2 custom-STF spike: whether the kernel survives translation into the Nitro STF/replay model with acceptable single-source properties.
 - **E — Generic zkVM kernel rollup (admitted by the kernel split)**: kernel validity proofs via a general zkVM with the simulation layer optimistic/replay-audited; feasibility spike before it earns full candidate status.
 
-## 4. Eligibility and Selection
+## 5. Eligibility and Selection
 
 ```
 gate failure → candidate rejected or redesigned
@@ -94,7 +191,7 @@ all required gates passed → ADR-eligible
 
 There is no ranking and no first-past-the-post. A failure-routing table may order **effort** (e.g. if Cartesi fails only DA economics, try alternate DA for the same machine before evaluating D2), and orders nothing else. The candidates' settlement layers are additionally evaluated against the succession and snapshot-pointer requirements (`verification.md` §8), which entered after the original candidate write-ups.
 
-## 5. Candidate Notes (role view, no ranking)
+## 6. Candidate Notes (role view, no ranking)
 
 | Property | Cartesi rollup | Avalanche L1 | Cardano settlement | Arbitrum/Nitro | zkVM kernel rollup |
 |---|---|---|---|---|---|
@@ -105,12 +202,13 @@ There is no ranking and no first-past-the-post. A failure-routing table may orde
 | DA for recovery | modular: investigate | must design explicitly | external | configurable | configurable |
 | Status | prototype required | blocked pending verifier + DA design scope | prototype required (kernel-validity feasibility) | prototype required (STF translation) | spike required |
 
-## 6. Deliverables
+## 7. Deliverables
 
+0. Slice B harness (§2): minimal settlement contract, Odin protocol probe, E2E script, negative paths, dual-process participant run, deterministic CI run.
 1. Conformance suite (0a vectors + edge cases; 0b fuzz harness; conservation assertions; permanent CI asset).
 2. Kernel prototype: permit reservation/consumption, assigned entropy, capture roll, capability accounting, authenticated tree; Transition 0 harness.
 3. Written protocol spec sufficient for 0c, plus the independent replay tool (different engineer, no reference-source reuse).
 4. Independent kernel implementation (0c).
 5. Per-experiment measurement reports, gate by gate, raw numbers.
-6. Cost model per §2 G7.
+6. Cost model per §3 G7.
 7. Comparative ADR draft, recorded only from measured results.
