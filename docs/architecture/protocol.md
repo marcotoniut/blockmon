@@ -32,6 +32,7 @@ REQUIRED:
 - **Totality**: every syntactically valid sequenced command produces a defined outcome, including defined failure on unmet preconditions. Batch invalidity is never the answer to a bad command.
 - **Determinism**: integer/fixed-point arithmetic only; canonical iteration order; canonical versioned encodings; defined overflow behaviour; seedable versioned RNG only; time only as canonical input; no allocator/platform behaviour influencing canonical output. Cross-target and cross-implementation conformance are gates, not aspirations.
 - **Kernel step budget**: a per-transition bound (ProtocolManifest constant) so no valid transition can exhaust verifiers.
+- **Bounded authenticated access**: every transition may read or update a protocol-bounded number of authenticated keys, and each authenticated-key operation incurs a protocol-bounded cost that does not depend on total state size.
 - The transcript is the ordered sub-transition record sufficient for replay and challenge; canonical transcript encoding is versioned.
 
 ## 3. Canonical Ordering
