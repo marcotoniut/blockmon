@@ -10,6 +10,14 @@
 
 # `odin build .` names the binary after the directory it builds
 /blockmon
+/3d-computer-graphics-programming
+
+# Cargo artefacts (G0c)
+conformance/g0c/impl/target/
+
+# Foundry artefacts (Slice B)
+prototype/slice-b/contracts/out/
+prototype/slice-b/contracts/cache/
 
 # Secrets and Cardano signing keys
 .env
@@ -25,5 +33,12 @@
 .idea/
 *.swp
 
-# Claude Code per-machine overrides
+# Claude Code per-machine overrides and agent worktrees
 .claude/settings.local.json
+.claude/worktrees/
+
+# Per-machine hook overrides
+lefthook-local.yml
+
+# Local investigation notes, not repo history
+/tmp/

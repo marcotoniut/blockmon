@@ -102,11 +102,10 @@ processes share `protocol/canonical`, so it is one implementation running twice.
 ### 2.7 Revised sequence
 
 ```
-Slice B (E2E on local chain)                          ← now
-→ G0a smoke vectors (grown from slice fixtures)
-→ Transition 1 (capture path) + G0b fuzz
-→ G0c independent implementation; G0d reproducibility
-     (the Q11 reproducibility spike may run parallel to Slice B)
+Slice B (E2E on local chain)                           complete, frozen
+→ G0a smoke vectors (grown from slice fixtures)        complete
+→ Transition 1 (capture path) + G0b fuzz               complete
+→ G0c independent implementation; G0d reproducibility  G0c complete; G0d open (register Q11)  ← now
 → experiments A-E and G1-G10 as previously sequenced
 ```
 
@@ -118,10 +117,10 @@ Slice checks prefigure G2 (native determinism at small scale), G5 (negative path
 
 Scope note: G0 covers **protocol cryptography only** (`architecture.md` §21): canonical encoding, protocol hashing and domain separation, commitment/tree semantics, cross-target determinism, reproducible artefacts. Settlement-interface cryptography (chain signatures, chain hashes) is exercised by the slice and the chain adapters, never by G0; a chain's primitives being absent from the kernel language blocks neither G0 nor kernel work.
 
-- **0a smoke**: 10³-10⁴ vectors including hand-built edge cases, byte-identical canonical transcripts and roots across x86-64/ARM64/RISC-V. Status: the constitutional seed corpus, its Odin generator and an independent Python checker (derived from `canonical-encoding.md`, no shared code) live in `conformance/`; the corpus is deliberately small and high-signal, and scaling to the full vector count plus the tri-target execution matrix completes 0a.
-- **0b hardening**: ≥10⁶ fuzzed transitions, same criterion; permanent CI gate. Status: property/fuzz harness at `conformance/fuzz` (`just g0b`; raw-struct generators, independent model oracle, canonical-bytes equality, seed-reproducible); >8M transitions across four seeds, including the pinned default 0xB10C0DE5EED (12166583181037, shared by `just g0b` and the bare binary), pass with zero counterexamples. The permanent-CI-gate half is unmet: this repo has no CI yet.
-- **0c independent implementation**: a second kernel implementation built from the written spec (no reference-source reuse) matches canonical vectors.
-- **0d reproducible artefact**: third party rebuilds the canonical verification artefact bit-identically from source + pinned toolchain + recipe (register Q11). Includes the artefact-change drill: a toolchain bump must pass the conformance obligation (`protocol.md` §9) as a VerificationManifest-only change.
+- **0a smoke**: 10³-10⁴ vectors including hand-built edge cases, byte-identical canonical transcripts and roots across x86-64/ARM64/RISC-V. Status: closed. `conformance/` contains the immutable 51-check constitutional seed corpus, the seeded 1136-check expansion tier, the Odin generator, and an independent Python checker derived from `canonical-encoding.md` with no shared code. The seed corpus serves as historical evidence; only the expansion tier grows. `conformance/cross-target.sh` records byte identity for both corpora across four targets: darwin arm64, linux arm64, linux amd64, and linux riscv64. Because it requires docker and a riscv64 container, it remains off the per-change CI path. The intended shape is a scheduled or manually dispatched job, keeping the fast constitutional gates on every push and pull request.
+- **0b hardening**: ≥10⁶ fuzzed transitions, same criterion; permanent CI gate. Status: closed. Property/fuzz harness at `conformance/fuzz` (`just g0b`; raw-struct generators, independent model oracle, canonical-bytes equality, seed-reproducible); >8M transitions across four seeds, including the pinned default 0xB10C0DE5EED (12166583181037, shared by `just g0b` and the bare binary), pass with zero counterexamples. Every push to main and every pull request triggers the permanent CI gate in `.github/workflows/conformance.yml`. This runs the lint gate, the kernel suite, g0a with a byte-identical corpus check, g0b at full budget, and g0c on its own toolchain path.
+- **0c independent implementation**: a second kernel implementation built from the written spec (no reference-source reuse) matches canonical vectors. Status: closed. The cleanroom Rust kernel in `conformance/g0c/` reproduces both corpora at 1187/1187 from the written spec alone, deriving no value from a vector. This exercise yielded three corrections to `canonical-encoding.md`: assigned reject discriminants, the definition of valid kernel input, and the extant == created clause. `REPORT.md` records each isolated session verbatim.
+- **0d reproducible artefact**: third party rebuilds the canonical verification artefact bit-identically from source + pinned toolchain + recipe (register Q11). Includes the artefact-change drill: a toolchain bump must pass the conformance obligation (`protocol.md` §9) as a VerificationManifest-only change. Status: open, with a scoped negative recorded. Protocol outputs are deterministic and project packages compile bit-identically, but whole Odin binaries are not: gensym counters in four runtime and os package symbols differ between builds, natively and inside a riscv64 container, with `-thread-count:1`. Nearest upstream issues are odin-lang/Odin #3028 and #6076. No binary normaliser is in use, since normalising would define away the nondeterminism this gate exists to detect.
 - **All corpora assert the conservation identities** (`protocol.md` §10) in addition to equality. Cross-platform agreement alone cannot pass G0.
 
 ### G1 — Resource Budgets
