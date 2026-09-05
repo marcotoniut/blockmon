@@ -9,8 +9,9 @@ ODIN_VET := "-vet -vet-cast -vet-using-param -strict-style -disallow-do -warning
 default:
 	@just --list
 
-# Static gates for every language in the tree. Rust is excluded by design: the
-# G0c crate pins its own toolchain, so `just g0c` owns its fmt and clippy gate.
+# Static gates for every language in the tree.
+# Rust is excluded: its crates pin their own toolchains,
+# so `just g0c` and `just tree-v1-rust` own fmt and clippy.
 lint: lint-odin lint-python lint-shell lint-sol
 
 # Type-checks packages with no main procedure, unreachable by the build
@@ -113,6 +114,18 @@ g0a:
 	./build/g0a-gen > conformance/vectors/g0a-vectors.json
 	./build/g0a-gen expansion > conformance/vectors/g0a-expansion.json
 	python3 conformance/check.py
+
+# v1 tree: the independently derived Rust checker against both v1 tiers
+tree-v1-rust:
+	cd conformance/tree-v1/impl && cargo fmt --check && cargo clippy --quiet --all-targets --all-features && cargo test --release --quiet && cargo run --release --quiet -- ../../vectors/g0a-tree-v1.json ../../vectors/g0a-tree-v1-expansion.json
+
+# v1 tree: the Odin reference must reproduce the hand-derived constitutional vectors
+tree-v1:
+	mkdir -p build
+	odin build ./conformance/tree -out:./build/tree-v1 -o:none {{ODIN_VET}}
+	./build/tree-v1
+	odin build ./conformance/gen-tree -out:./build/gen-tree -o:none {{ODIN_VET}}
+	./build/gen-tree > conformance/vectors/g0a-tree-v1-expansion.json
 
 # G0c: cleanroom Rust checker (fmt + clippy gate, then both corpora)
 g0c:

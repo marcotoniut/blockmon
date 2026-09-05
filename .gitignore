@@ -14,6 +14,7 @@
 
 # Cargo artefacts (G0c)
 conformance/g0c/impl/target/
+conformance/tree-v1/impl/target/
 
 # Foundry artefacts (Slice B)
 prototype/slice-b/contracts/out/

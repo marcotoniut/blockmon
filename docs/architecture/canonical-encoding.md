@@ -197,6 +197,8 @@ assigned_round(p) = p / round_period + 1 + entropy_safety_margin
 reveal_position(r) = r * round_period      // strictly after p for every p, by construction
 ```
 
+The `world_root` line above is the archived v0 derivation, kept because the v0 corpus is evidence of v0 semantics. New state commits through the authenticated state tree of §7, which supersedes it.
+
 Precondition order (normative): the kernel evaluates exactly the checks below
 in this order, and the first failure is the rejection reason. Every failure is
 a defined rejection: it consumes nothing, returns the input state
@@ -236,3 +238,138 @@ Provisional stand-ins, explicitly NOT frozen architecture:
   rejections that consume nothing; once the entropy-bound roll executes, the
   permit and one capture-class capability are consumed unconditionally
   (consume-on-attempt, `protocol.md` §6).
+
+## 7. Authenticated State Tree (v1)
+
+Provisional pin; any change must pass the conformance obligation (`protocol.md`
+§9). This supersedes the flat `blockmon/world/v0` root for new state.
+`blockmon/world/v0` remains defined for the archived v0 corpus, which is
+historical evidence and is never regenerated.
+
+**Domains and tags.** Each ratified state domain (`protocol.md` §1) is
+authenticated by its own tree. Tags are assigned; `0` is not a valid tag.
+
+| Tag | Domain | Record | Key |
+|---|---|---|---|
+| 1 | subject | `SubjectV0 := unit`, zero record-field bytes | `Subject_ID` |
+| 2 | blockmon | `BlockmonRecord` | `creature_id` |
+| 3 | encounter | `PermitRecord` | `permit_id` |
+| 4 | supply | `Supply` | 32 zero bytes, the only admissible key |
+
+`SubjectV0 := unit` occupies no record-field bytes, so a subject leaf's
+preimage ends at its key. This is not §2's length-prefixed `bytes` primitive;
+since no `bytes` field is declared, no length prefix appears anywhere in the
+preimage. Treating it as a `bytes` field would prepend four zero bytes and
+alter every subject leaf.
+
+Domains assigned here: `blockmon/smt-leaf/v0`, `blockmon/smt-node/v0`,
+`blockmon/smt-empty/v0`, `blockmon/world/v1`.
+
+**Domain state.** State is a finite mapping from 32-byte key to record, not
+a sequence. Every key is unique; every record is valid for its domain; where
+a record carries its own identifier, that identifier equals the tree key.
+The supply domain admits exactly the zero key. State violating any of these
+is malformed and, under Transition 1, falls in the INVALID_STATE class of
+§6. Ordering is a property of representation, not state: where an ordered
+representation is required, for encoding or construction, keys appear
+strictly ascending byte-lexicographically.
+
+**Construction.** A domain tree is a sparse Merkle tree of fixed depth 256,
+keyed by the record's 32-byte identifier. Leaves sit at level 0; the root is
+the level-256 value, so an empty domain's root is `empty[256]`. For key `k`
+and `0 <= i < 256`, `bit(i)` is bit position `i mod 8` counted from zero at
+the most significant bit of byte `i / 8`. The path from root to leaf consumes
+`bit(0)` first and `bit(255)` last, where `0` selects the left child and `1`
+the right.
+
+```
+empty[0]   = ProtocolHash("blockmon/smt-empty/v0", "")
+empty[d+1] = ProtocolHash("blockmon/smt-node/v0", empty[d] ‖ empty[d])   for d in [0, 256)
+
+leaf(tag, key, record) = ProtocolHash("blockmon/smt-leaf/v0",
+                                     u8(tag) ‖ key ‖ encode(record))
+node(left, right)      = ProtocolHash("blockmon/smt-node/v0", left ‖ right)
+```
+
+Each level holds its own empty commitment. If commitments at two different
+levels were equal, that would be a hash collision. Such an event falls
+outside protocol-valid adversarial assumptions; it is an assumption rather
+than a validation condition.
+
+A node with one empty child is hashed like any other node; there is no path
+collapse. The level-0 slot of an absent key holds `empty[0]`.
+
+**World commitment.**
+
+```
+WorldCommitmentV1 := record { subject_root:   hash32, blockmon_root: hash32,
+                              encounter_root: hash32, supply_root:   hash32 }
+
+world_root = ProtocolHash("blockmon/world/v1", encode(WorldCommitmentV1))
+```
+
+The field set and its order are constitutional: admitting a further ratified
+domain is a `protocol.md` §11 migration, never a ProtocolManifest field. The
+settled artefact's `supply_commitment` is this same root, so
+`supply_commitment == supply_root` holds for every valid settled artefact.
+
+```
+SUBJECT   -> WorldCommitmentV1.subject_root
+BLOCKMON  -> WorldCommitmentV1.blockmon_root
+ENCOUNTER -> WorldCommitmentV1.encounter_root
+SUPPLY    -> WorldCommitmentV1.supply_root
+```
+
+A domain root occupies one named field; position is what verification checks.
+The mapping uses the field name, not the tag's numeric value, so it survives
+future non-contiguous discriminants. A populated domain binds semantics via
+the tag in every leaf. An empty domain root has no leaves, so field position
+is the only binding; that is why it is constitutional.
+
+Tree construction and world commitment schema versions operate on independent
+axes. `WorldCommitmentV1` commits domain roots built by construction v0,
+specifically the `smt-leaf`, `smt-node` and `smt-empty` domains mentioned
+above. This association is stated explicitly because later world schemas may
+retain construction v0, and later constructions may appear under an unchanged
+world schema, rather than relying on matching suffixes.
+
+**Proofs.**
+
+A logical proof consists of `(tag, key, record or absence, 256 sibling
+commitments ordered leaf to root)`. It contains no leaf hash or path data. The
+verifier computes the leaf itself, using the key to determine the path.
+Verification then recomputes the domain root from the leaf and siblings,
+compares it against the claimed domain root, and checks that root at its
+assigned position in `WorldCommitmentV1`.
+
+A proof is malformed when its encoding or domain-local record semantics are
+invalid: an incorrect sibling count, an inadmissible domain key, an invalid
+record encoding, or, where the record carries an identifier, one that does
+not equal the proof key. Malformedness is not just byte shape. The binding is
+checked at the proof boundary, not left to every producer having built valid
+state, because under the domain state rule above that record is not
+admissible at that key at all.
+
+Rejection has two classes, and they are distinct outcomes:
+
+| Class | Cases |
+|---|---|
+| Malformed | sibling count ≠ 256; key length ≠ 32; unassigned `tag`; a supply key other than 32 zero bytes; record bytes that fail strict exact-consume decoding (§2); a record identifier that does not equal the proof key, where the record carries one |
+| Well-formed but invalid | recomputed root ≠ claimed domain root; the claimed domain root does not appear at its assigned position in `WorldCommitmentV1` |
+
+**Cost.** Committing one key costs one leaf hash and 256 node hashes,
+independent of domain size. A state-changing transition costs that per key
+touched, plus one `blockmon/world/v1` recomputation after its
+authenticated-key updates. A rejected transition returns the input commitment
+unchanged and incurs no state-recomputation hash. `protocol.md` §2 bounds the
+number of keys a transition may touch. Verification cost is accounted
+separately: a verifier holding no state climbs one proof per authenticated
+read, which is not part of a transition's execution cost.
+
+**Proof encoding.** The compact wire format is deliberately unpinned. Any
+encoding, for example a presence bitmap with the non-empty siblings, MUST
+decode to the exact logical proof above and thus to the same root. This does
+not conflict with the one-encoding rule in §1, which applies to consensus
+objects. A compact proof is a transport representation, never itself hashed
+or committed. Should a proof become consensus-visible, its encoding must be
+pinned before that happens.

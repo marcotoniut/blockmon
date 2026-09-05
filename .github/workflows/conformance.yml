@@ -15,10 +15,12 @@ jobs:
       - run: nix develop -c just lint
       - run: nix develop -c just kernel-test
       - run: nix develop -c just g0a
-      # g0a regenerates both corpora and self-checks; the committed corpora must
-      # be byte-identical or the generator has drifted from the archive.
-      - run: git diff --exit-code conformance/vectors/
       - run: nix develop -c just g0b
+      - run: nix develop -c just tree-v1
+      # g0a and tree-v1 regenerate every generated corpus and self-check; each
+      # committed corpus must be byte-identical or a generator has drifted from
+      # the archive. The hand-derived tier is never regenerated at all.
+      - run: git diff --exit-code conformance/vectors/
 
   # Separate toolchain path on purpose: the G0c crate pins its own Rust via
   # rust-toolchain.toml (rustup honors it), independent of the nix devshell.
@@ -31,3 +33,4 @@ jobs:
         with:
           tool: just
       - run: just g0c
+      - run: just tree-v1-rust

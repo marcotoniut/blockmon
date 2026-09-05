@@ -17,8 +17,10 @@ Vocabulary note, stated once: a **subject** is a protocol identity (a key), neve
 
 - WorldState decomposes into typed sub-states with canonical, versioned encodings. Ratified domains: **subject (player), Blockmon, encounter, supply/capability**. Marketplace and tournament domains are anticipated, unratified (register Q9).
 - Sub-states hash into an authenticated state tree producing `world_root`. The settled artefact is conceptually `{world_root, protocol_manifest_hash, verification_manifest_hash, supply_commitment, epoch}`.
+- **Domain state**: each authenticated sub-state maps 32-byte keys to records. Keys are unique; records are valid for their domain. If a record carries its own identifier, it equals its key. Any violation of these constraints renders the state malformed. Without uniqueness, the value at a key is undefined. Without the identifier binding, a commitment can name one record under another's key.
+- **Subject identity**: `Subject_ID` is stable and independent of rotatable authority material. Canonical ownership, reservation, and command references use `Subject_ID`. `SubjectV0` is unit state; inclusion in the subject sub-state attests admission to canonical state and nothing else. No wallet, credential, metadata, or profile fact is implied. Authority material and rotation semantics are not part of v0; they enter with a later subject-record version, at the first protocol action that requires authorisation.
 - Primitive/record encodings and the protocol hash (SHA-256 with length-prefixed domain separation) are **provisionally pinned** in `canonical-encoding.md`, exercised by the G0a corpus (`conformance/vectors/`), and replaceable via migration (§11). The hash choice is a ProtocolManifest field.
-- OPEN (spec docket): authenticated state-tree structure (Transition 1 scope); canonical encodings for kernel objects beyond the battle-channel transcript set.
+- OPEN (spec docket): canonical encodings for kernel objects beyond the battle-channel transcript set. The authenticated state-tree structure is provisionally pinned in `canonical-encoding.md` §7.
 
 ## 2. Transition Function and Determinism Contract
 
