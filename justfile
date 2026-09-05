@@ -99,21 +99,31 @@ kernel-test:
 	mkdir -p build
 	odin test ./protocol/kernel -out:./build/kernel-test {{ODIN_VET}}
 
+# Canonical construction unit suite: the update rejections no vector tier records
+canonical-test:
+	mkdir -p build
+	odin test ./protocol/canonical -out:./build/canonical-test {{ODIN_VET}}
+
 # G0b: deterministic kernel property/fuzz run (seed, singles, sequences override)
 # Default seed = the harness SEED_DEFAULT (0xB10C0DE5EED), so `just g0b` and a
 # bare ./build/g0b-fuzz replay the same corpus.
-g0b seed="12166583181037" singles="1000000" sequences="20000":
+g0b seed="12166583181037" singles="1000000" sequences="20000" tracked="500":
 	mkdir -p build
 	odin build ./conformance/fuzz -out:./build/g0b-fuzz -o:speed {{ODIN_VET}}
-	./build/g0b-fuzz {{seed}} {{singles}} {{sequences}}
+	./build/g0b-fuzz {{seed}} {{singles}} {{sequences}} {{tracked}}
 
-# G0a: regenerate golden vectors (seed + expansion) and verify with the independent checker
-g0a:
-	mkdir -p build conformance/vectors
-	odin build ./conformance/gen -out:./build/g0a-gen -o:none {{ODIN_VET}}
-	./build/g0a-gen > conformance/vectors/g0a-vectors.json
-	./build/g0a-gen expansion > conformance/vectors/g0a-expansion.json
+# G0a v0: verified historical constitutional evidence, never regenerated.
+# The current kernel commits world/v1 and cannot reproduce these flat roots.
+# The archive is pinned by digest; check.py still re-derives every value from the spec, which retains blockmon/world/v0 for exactly this.
+g0a-archive:
+	cd conformance/vectors && shasum -a 256 -c ARCHIVE.sha256
 	python3 conformance/check.py
+
+# T1 under v1: the kernel must reproduce the hand-derived T1 v1 tier
+t1-v1:
+	mkdir -p build
+	odin build ./conformance/t1-v1 -out:./build/t1-v1 -o:none {{ODIN_VET}}
+	./build/t1-v1
 
 # v1 tree: the independently derived Rust checker against both v1 tiers
 tree-v1-rust:

@@ -350,12 +350,48 @@ checked at the proof boundary, not left to every producer having built valid
 state, because under the domain state rule above that record is not
 admissible at that key at all.
 
+**Authenticated update.**
+
+An update is `(tag, key, old value, new value, 256 sibling commitments ordered
+leaf to root, claimed pre-state domain root)`, where each value is a record or
+an absence. The verifier computes the old level-0 value, climbs the siblings,
+and requires the result to equal the claimed pre-state domain root. It then
+computes the new level-0 value, climbs the same siblings, and that result is the
+post-state domain root.
+
+```
+root_from(key, level_zero, siblings) is the root recomputation of Proofs above,
+using the key to select the path.
+
+old_level_zero = leaf(tag, key, old_record)  if the old value is a record
+                 empty[0]                    if the old value is an absence
+new_level_zero = leaf(tag, key, new_record)  if the new value is a record
+                 empty[0]                    if the new value is an absence
+
+required:  root_from(key, old_level_zero, siblings) = claimed_pre_root
+then:      post_root = root_from(key, new_level_zero, siblings)
+```
+
+One sibling sequence serves both climbs. Every sibling on a key's path commits a
+subtree excluding the key, so only the level-0 slot moves. This holds for
+modifications, insertions, and deletions. No path collapse redistributes
+siblings.
+
+The post-state root an update produces must equal the domain root of a full
+derivation over the post-state mapping. Updates anchor in the pre-state and are
+not root constructors. An old value not committed by the claimed pre-state root
+is refused, not climbed. No update can assert a root its pre-state does not
+support. A rejected update leaves the domain root at its pre-state value.
+
+An update's rejection classes are those of a proof, applied to both of its
+values.
+
 Rejection has two classes, and they are distinct outcomes:
 
 | Class | Cases |
 |---|---|
 | Malformed | sibling count ≠ 256; key length ≠ 32; unassigned `tag`; a supply key other than 32 zero bytes; record bytes that fail strict exact-consume decoding (§2); a record identifier that does not equal the proof key, where the record carries one |
-| Well-formed but invalid | recomputed root ≠ claimed domain root; the claimed domain root does not appear at its assigned position in `WorldCommitmentV1` |
+| Well-formed but invalid | recomputed root ≠ claimed domain root; the claimed domain root does not appear at its assigned position in `WorldCommitmentV1`; an update's old value does not climb to the claimed pre-state domain root |
 
 **Cost.** Committing one key costs one leaf hash and 256 node hashes,
 independent of domain size. A state-changing transition costs that per key
@@ -365,6 +401,10 @@ unchanged and incurs no state-recomputation hash. `protocol.md` §2 bounds the
 number of keys a transition may touch. Verification cost is accounted
 separately: a verifier holding no state climbs one proof per authenticated
 read, which is not part of a transition's execution cost.
+An update that checks its anchor climbs twice, costing a verifier without
+domain state two leaf hashes and 512 node hashes per key. A producer with the
+domain state already knows the pre-state root and climbs once. Both costs are
+independent of domain size, as bounded by `protocol.md` §2.
 
 **Proof encoding.** The compact wire format is deliberately unpinned. Any
 encoding, for example a presence bitmap with the non-empty siblings, MUST

@@ -133,6 +133,26 @@ domain_name :: proc(tag: canonical.Domain_Tag) -> string {
 	return "?"
 }
 
+// The three transitions a fixed-depth key can undergo. There is no fourth: a
+// key is either committed or not, before and after.
+Update_Kind :: enum {
+	Modify,
+	Insert,
+	Delete,
+}
+
+kind_name :: proc(k: Update_Kind) -> string {
+	switch k {
+	case .Modify:
+		return "modify"
+	case .Insert:
+		return "insert"
+	case .Delete:
+		return "delete"
+	}
+	return "?"
+}
+
 emit_entries :: proc(entries: []canonical.Tree_Entry) {
 	emit("[")
 	for e, i in entries {
@@ -140,6 +160,17 @@ emit_entries :: proc(entries: []canonical.Tree_Entry) {
 			emit(", ")
 		}
 		emit("{{\"key\": \"%s\", \"record_bytes\": \"%s\"}}", hx32(e.key), hx(e.record))
+	}
+	emit("]")
+}
+
+emit_siblings :: proc(sibs: [][32]byte) {
+	emit("[")
+	for sib, i in sibs {
+		if i > 0 {
+			emit(", ")
+		}
+		emit("\"%s\"", hx32(sib))
 	}
 	emit("]")
 }
@@ -174,14 +205,114 @@ emit_proof :: proc(tag: canonical.Domain_Tag, entries: []canonical.Tree_Entry, k
 			}
 		}
 	}
-	emit(", \"domain_root\": \"%s\", \"siblings_leaf_to_root\": [", hx32(canonical.domain_root(tag, entries)))
-	for i in 0 ..< canonical.TREE_DEPTH {
-		if i > 0 {
-			emit(", ")
-		}
-		emit("\"%s\"", hx32(sibs[i]))
+	emit(", \"domain_root\": \"%s\", \"siblings_leaf_to_root\": ", hx32(canonical.domain_root(tag, entries)))
+	emit_siblings(sibs[:])
+	emit("}}")
+}
+
+// One bounded update, recorded so a consumer re-derives instead of comparing:
+// the pre-state mapping, the pre-state proof, and both roots. root_after is a
+// full derivation of the post-state, never the bounded path's own output, so a
+// consumer that agrees with both has shown the two paths coincide.
+emit_update :: proc(tag: canonical.Domain_Tag, kind: Update_Kind, n: int, r: ^Rng) {
+	before := mk_entries(tag, n, r)
+
+	present_before := kind != .Insert
+	present_after := kind != .Delete
+	key: [32]byte
+	switch kind {
+	case .Modify, .Delete:
+		key = before[n / 2].key
+	case .Insert:
+		key = tag == .Supply ? canonical.supply_singleton_key() : rand_key(r)
 	}
-	emit("]}}")
+
+	record_before: []byte
+	if present_before {
+		for e in before {
+			if e.key == key {
+				record_before = e.record
+				break
+			}
+		}
+	}
+	record_after: []byte
+	if present_after {
+		record_after = mk_record(tag, key, r)
+	}
+
+	after := make([dynamic]canonical.Tree_Entry)
+	defer delete(after)
+	for e in before {
+		if e.key != key {
+			append(&after, e)
+		}
+	}
+	if present_after {
+		append(&after, canonical.Tree_Entry{key = key, record = record_after})
+	}
+	slice.sort_by(after[:], key_less)
+
+	root_before := canonical.domain_root(tag, before)
+	root_after := canonical.domain_root(tag, after[:])
+
+	sibs: [canonical.TREE_DEPTH][32]byte
+	canonical.tree_siblings(tag, before, key, &sibs)
+	sibs_after: [canonical.TREE_DEPTH][32]byte
+	canonical.tree_siblings(tag, after[:], key, &sibs_after)
+
+	// Every sibling on the path is a commitment to a subtree the key is not in,
+	// so only the leaf moves. This is what lets the bounded path reuse the
+	// pre-state proof, and it must hold for an insert and a delete too.
+	if !slice.equal(sibs[:], sibs_after[:]) {
+		fmt.eprintfln("sibling set moved: %s %s n=%d", domain_name(tag), kind_name(kind), n)
+		os.exit(1)
+	}
+	bounded, err := canonical.apply_update(
+		tag,
+		key,
+		record_before,
+		present_before,
+		record_after,
+		present_after,
+		sibs[:],
+		root_before,
+	)
+	if err != .None || bounded != root_after {
+		fmt.eprintfln(
+			"bounded update disagrees with full derivation: %s %s n=%d",
+			domain_name(tag),
+			kind_name(kind),
+			n,
+		)
+		os.exit(1)
+	}
+
+	emit(
+		"    {{\"tag\": %d, \"domain\": \"%s\", \"count\": %d, \"kind\": \"%s\", \"key\": \"%s\", \"entries_before\": ",
+		u8(tag),
+		domain_name(tag),
+		n,
+		kind_name(kind),
+		hx32(key),
+	)
+	emit_entries(before)
+	emit(", \"present_before\": %t, \"record_before\": ", present_before)
+	if present_before {
+		emit("\"%s\"", hx(record_before))
+	} else {
+		emit("null")
+	}
+	emit(", \"present_after\": %t, \"record_after\": ", present_after)
+	if present_after {
+		emit("\"%s\"", hx(record_after))
+	} else {
+		emit("null")
+	}
+	emit(", \"root_before\": \"%s\", \"root_after\": \"%s\"", hx32(root_before), hx32(root_after))
+	emit(", \"siblings_leaf_to_root\": ")
+	emit_siblings(sibs[:])
+	emit(", \"siblings_unchanged\": true, \"keys_touched\": 1}}")
 }
 
 OCCUPANCIES := []int{0, 1, 2, 3, 5, 8, 17, 64, 257}
@@ -281,37 +412,31 @@ main :: proc() {
 	}
 	emit("\n  ],\n")
 
-	// --- updates: one key touched, the sibling set unchanged ----------------
+	// --- updates: the bounded authenticated path, one key at a time ---------
+	// A key can only be modified, inserted or deleted, and the bounded path must
+	// reach the same root as a full derivation in all three. Subject records are
+	// empty, so a subject modify is not an update; supply is a singleton, so its
+	// only updates are the domain gaining the admissible key and losing it.
 	emit("  \"updates\": [\n")
-	for n, i in UPDATE_OCCUPANCIES {
-		if i > 0 {
-			emit(",\n")
+	first = true
+	for tag in ([]canonical.Domain_Tag{.Subject, .Blockmon, .Encounter}) {
+		for kind in ([]Update_Kind{.Modify, .Insert, .Delete}) {
+			if tag == .Subject && kind == .Modify {
+				continue
+			}
+			for n in UPDATE_OCCUPANCIES {
+				if !first {
+					emit(",\n")
+				}
+				first = false
+				emit_update(tag, kind, n, &r)
+			}
 		}
-		es := mk_entries(.Blockmon, n, &r)
-		es_before := make([]canonical.Tree_Entry, n)
-		copy(es_before, es)
-		target := es[n / 2]
-		root_before := canonical.domain_root(.Blockmon, es)
-		sibs: [canonical.TREE_DEPTH][32]byte
-		canonical.tree_siblings(.Blockmon, es, target.key, &sibs)
-		record_after := mk_record(.Blockmon, target.key, &r)
-		es[n / 2].record = record_after
-		root_after := canonical.domain_root(.Blockmon, es)
-		sibs_after: [canonical.TREE_DEPTH][32]byte
-		canonical.tree_siblings(.Blockmon, es, target.key, &sibs_after)
-		unchanged := slice.equal(sibs[:], sibs_after[:])
-		emit(
-			"    {{\"tag\": %d, \"domain\": \"%s\", \"count\": %d, \"key\": \"%s\", \"entries_before\": ",
-			u8(canonical.Domain_Tag.Blockmon),
-			domain_name(.Blockmon),
-			n,
-			hx32(target.key),
-		)
-		emit_entries(es_before)
-		emit(", \"record_before\": \"%s\", \"record_after\": \"%s\"", hx(target.record), hx(record_after))
-		emit(", \"root_before\": \"%s\", \"root_after\": \"%s\"", hx32(root_before), hx32(root_after))
-		emit(", \"keys_touched\": 1, \"siblings_unchanged\": %t}}", unchanged)
 	}
+	emit(",\n")
+	emit_update(.Supply, .Insert, 0, &r)
+	emit(",\n")
+	emit_update(.Supply, .Delete, 1, &r)
 	emit("\n  ],\n")
 
 	// --- supply singleton ---------------------------------------------------
@@ -419,6 +544,41 @@ main :: proc() {
 		hx32(mismatch_id),
 		hx(mk_record(.Blockmon, mismatch_id, &r)),
 	)
+	// An update proof that does not open the claimed pre-root must be refused
+	// rather than climbed, which is what separates the bounded path from a fast
+	// root constructor. No accepted-update case can demonstrate this, so both
+	// directions are recorded here: a claimed root the proof does not open, and
+	// an absence claimed for a key the root commits.
+	up_sibs: [canonical.TREE_DEPTH][32]byte
+	canonical.tree_siblings(.Blockmon, es, es[0].key, &up_sibs)
+	emit(
+		"    {{\"class\": \"well-formed but invalid\", \"kind\": \"update-old-root-mismatch\", \"tag\": %d, \"domain\": \"%s\", \"key\": \"%s\", \"entries\": ",
+		u8(canonical.Domain_Tag.Blockmon),
+		domain_name(.Blockmon),
+		hx32(es[0].key),
+	)
+	emit_entries(es)
+	emit(", \"present_before\": true, \"record_before\": \"%s\"", hx(es[0].record))
+	emit(", \"claimed_old_root\": \"%s\", \"actual_old_root\": \"%s\"", hx32(bad), hx32(root))
+	emit(", \"siblings_leaf_to_root\": ")
+	emit_siblings(up_sibs[:])
+	emit("}},\n")
+	emit(
+		"    {{\"class\": \"well-formed but invalid\", \"kind\": \"update-false-absence\", \"tag\": %d, \"domain\": \"%s\", \"key\": \"%s\", \"entries\": ",
+		u8(canonical.Domain_Tag.Blockmon),
+		domain_name(.Blockmon),
+		hx32(es[0].key),
+	)
+	emit_entries(es)
+	emit(", \"present_before\": false, \"record_before\": null")
+	emit(", \"claimed_old_root\": \"%s\", \"actual_old_root\": \"%s\"", hx32(root), hx32(root))
+	emit(
+		", \"absence_climbs_to\": \"%s\"",
+		hx32(canonical.root_from_absence(es[0].key, up_sibs[:])),
+	)
+	emit(", \"siblings_leaf_to_root\": ")
+	emit_siblings(up_sibs[:])
+	emit("}},\n")
 	emit(
 		"    {{\"class\": \"well-formed but invalid\", \"kind\": \"domain-root-mismatch\", \"tag\": %d, \"domain\": \"%s\", \"entries\": ",
 		u8(canonical.Domain_Tag.Blockmon),
@@ -441,9 +601,9 @@ main :: proc() {
 	emit("  ],\n")
 
 	// --- Transition 1 under v1: authenticated access, both accounting models
-	// Derived from protocol/kernel/kernel.odin, not from a v1 kernel: the kernel
-	// still commits the flat v0 root. This is the concrete bound the
-	// protocol.md §2 access invariant needs for the first transition.
+	// Derived from protocol/kernel/kernel.odin's control flow, independently of
+	// how the kernel commits. This is the concrete bound the protocol.md §2
+	// access invariant needs for the first transition.
 	per_key :: 1 + canonical.TREE_DEPTH
 	emit("  \"transition1_authenticated_access\": {{\n")
 	emit("    \"accounting\": {{\n")

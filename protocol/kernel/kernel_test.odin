@@ -193,6 +193,121 @@ unsorted_world_invalid :: proc(t: ^testing.T) {
 	testing.expect_value(t, validate_world(&w), Validity.Unsorted_Subjects)
 }
 
+// §7: domain state is a keyed mapping, so the commitment cannot depend on the
+// order the representation happens to hold. world_root is also called on states
+// validate_world rejects, and an unsorted slice must not produce a different
+// well-formed root.
+@(test)
+world_root_order_independent :: proc(t: ^testing.T) {
+	sorted: World
+	defer destroy_world(&sorted)
+	append(&sorted.subjects, SUBJECT_A, SUBJECT_C)
+	append(
+		&sorted.blockmon,
+		Blockmon_Record{fill(0x11), SUBJECT_A, PERMIT_B},
+		Blockmon_Record{fill(0x22), SUBJECT_C, PERMIT_B},
+	)
+	append(
+		&sorted.permits,
+		Permit_Record{fill(0x33), SUBJECT_A, ENCOUNTER_COMMON, 1000, PERMIT_RESERVED},
+		Permit_Record{fill(0x44), SUBJECT_C, ENCOUNTER_COMMON, 1000, PERMIT_RESERVED},
+	)
+	// extant == created, and the two permits above are still reserved
+	sorted.supply = Supply{epoch = 7, envelope = 100, minted = 10, consumed = 2, created = 2}
+
+	shuffled: World
+	defer destroy_world(&shuffled)
+	append(&shuffled.subjects, SUBJECT_C, SUBJECT_A)
+	append(&shuffled.blockmon, sorted.blockmon[1], sorted.blockmon[0])
+	append(&shuffled.permits, sorted.permits[1], sorted.permits[0])
+	shuffled.supply = sorted.supply
+
+	testing.expect_value(t, validate_world(&sorted), Validity.Ok)
+	testing.expect(t, validate_world(&shuffled) != Validity.Ok, "shuffled state is not valid input")
+	testing.expect_value(t, world_root(&shuffled), world_root(&sorted))
+}
+
+// The bounded path must reach what the full derivation reaches, and must refuse
+// to advance a commitment that does not match the state it claims to commit.
+@(test)
+tracked_commitment_follows_full_derivation :: proc(t: ^testing.T) {
+	entropies := [?][32]byte{ENTROPY_SUCCESS, ENTROPY_FAIL}
+	for e in entropies {
+		w := test_world()
+		defer destroy_world(&w)
+		m := test_manifest()
+		tracked := track_world(&w)
+		testing.expect_value(t, tracked_root(&tracked), world_root(&w))
+
+		next, fx := transition(&w, test_cmd(), test_ctx(e), &m)
+		defer destroy_world(&next)
+		testing.expect(t, fx.outcome != OUTCOME_REJECTED, "fixture must be accepted")
+		testing.expect_value(t, tracked_advance(&tracked, &w, &next, test_cmd(), fx), Track_Error.None)
+		testing.expect_value(t, tracked_root(&tracked), world_root(&next))
+	}
+}
+
+@(test)
+tracked_commitment_still_after_rejection :: proc(t: ^testing.T) {
+	w := test_world()
+	defer destroy_world(&w)
+	w.permits[0].status = PERMIT_CONSUMED // already spent: rejected, writes nothing
+	m := test_manifest()
+	tracked := track_world(&w)
+	before := tracked_root(&tracked)
+
+	next, fx := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
+	defer destroy_world(&next)
+	testing.expect_value(t, fx.outcome, OUTCOME_REJECTED)
+	testing.expect_value(t, tracked_advance(&tracked, &w, &next, test_cmd(), fx), Track_Error.None)
+	testing.expect_value(t, tracked_root(&tracked), before)
+	testing.expect_value(t, tracked_root(&tracked), world_root(&next))
+}
+
+@(test)
+tracked_commitment_refuses_to_advance_when_drifted :: proc(t: ^testing.T) {
+	w := test_world()
+	defer destroy_world(&w)
+	m := test_manifest()
+	tracked := track_world(&w)
+	tracked.encounter_root[31] ~= 0x01 // one bit of drift in a touched domain
+
+	next, fx := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
+	defer destroy_world(&next)
+	testing.expect_value(
+		t,
+		tracked_advance(&tracked, &w, &next, test_cmd(), fx),
+		Track_Error.Old_Root_Mismatch,
+	)
+}
+
+// Two keys of one domain would need the tree the first update leaves behind.
+// Transition 1 never asks for it, so the guard is reached directly.
+@(test)
+tracked_commitment_refuses_two_keys_in_one_domain :: proc(t: ^testing.T) {
+	w := test_world()
+	defer destroy_world(&w)
+	m := test_manifest()
+	tracked := track_world(&w)
+
+	next, _ := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
+	defer destroy_world(&next)
+	twice := [?]Touched_Key {
+		{tag = .Blockmon, key = creature_id_from_permit(PERMIT_B)},
+		{tag = .Blockmon, key = fill(0x77)},
+	}
+	before := tracked
+	testing.expect_value(
+		t,
+		tracked_advance_keys(&tracked, &w, &next, twice[:]),
+		Track_Error.Domain_Touched_Twice,
+	)
+	// The first key applied before the second was refused; a tracker that kept
+	// that half-advance would anchor every later transition against a
+	// commitment matching neither state.
+	testing.expect_value(t, tracked, before)
+}
+
 @(test)
 entropy_reveal_strictly_after_commitment :: proc(t: ^testing.T) {
 	m := test_manifest()

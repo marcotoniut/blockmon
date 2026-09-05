@@ -20,6 +20,22 @@ import "core:os"
 import "core:slice"
 import "core:strconv"
 
+TRANSCRIPT_CASES_PER_PHASE :: 2000
+transcripts_compared := 0
+transcript_stride := u64(1)
+transcript_seen := u64(0)
+
+// Two full derivations per step, so this runs for the first steps of each
+// phase. A tracked sequence runs to its end rather than abandoning a tracker
+// mid-way, which makes the budget a floor. CI raises it; the summary reports
+// the count reached.
+TRACKED_DEFAULT :: 500
+tracked_budget := u64(TRACKED_DEFAULT)
+tracked_steps := u64(0)
+tracked_steps_total := u64(0)
+tracked_stride := u64(1)
+tracked_seen := u64(0)
+
 SEED_DEFAULT: u64 : 0xB10C0DE5EED
 SINGLES_DEFAULT :: 1_000_000
 SEQUENCES_DEFAULT :: 20_000
@@ -58,6 +74,19 @@ rand_h32 :: proc(r: ^Rng) -> (out: [32]byte) {
 
 seed_global: u64
 phase_global: string
+
+// Per phase: a single budget is spent inside the first bulk phase.
+// Stride sampling, not first-N: a first-N budget misses late-phase
+// shapes.
+enter_phase :: proc(name: string, t_stride: u64 = 1, k_stride: u64 = 1) {
+	phase_global = name
+	transcript_stride = max(1, t_stride)
+	tracked_stride = max(1, k_stride)
+	transcript_seen = 0
+	tracked_seen = 0
+	transcripts_compared = 0
+	tracked_steps = 0
+}
 case_global: u64
 step_global: int
 fail_count := 0
@@ -233,6 +262,42 @@ counts: Counts
 
 // Assert every property that must hold for a single transition, given the
 // expected rejection reason (0 = attempt must execute).
+// Advanced by the bounded path alone, compared against a full derivation.
+// Passing a tracker in carries it across a sequence, so drift accumulates.
+check_tracked_step :: proc(
+	before: ^kernel.World,
+	after: ^kernel.World,
+	cmd: kernel.Command,
+	fx: kernel.Effects,
+	carried: ^kernel.Tracked_Commitment = nil,
+) {
+	tracked := carried == nil ? kernel.track_world(before) : carried^
+	was := kernel.tracked_root(&tracked)
+	tracked_steps += 1
+	tracked_steps_total += 1
+
+	if err := kernel.tracked_advance(&tracked, before, after, cmd, fx); err != .None {
+		fail("tracked advance refused: %v", err)
+		dump_inputs(before, cmd, kernel.Context{}, &kernel.Manifest{})
+		return
+	}
+	if fx.outcome == kernel.OUTCOME_REJECTED {
+		if kernel.tracked_root(&tracked) != was {
+			fail("rejection moved the tracked commitment")
+		}
+		if !world_equal(before, after) {
+			fail("rejection moved the state")
+		}
+	}
+	if kernel.tracked_root(&tracked) != kernel.world_root(after) {
+		fail("tracked commitment != full derivation")
+		dump_inputs(before, cmd, kernel.Context{}, &kernel.Manifest{})
+	}
+	if carried != nil {
+		carried^ = tracked
+	}
+}
+
 check_transition :: proc(
 	w: ^kernel.World,
 	cmd: kernel.Command,
@@ -248,6 +313,15 @@ check_transition :: proc(
 	}
 
 	next, fx := kernel.transition(w, cmd, ctx, m)
+
+	// protocol.md §2, CE §7 Cost: the two paths agree, and a rejection moves
+	// neither state nor commitment.
+	if prev_valid {
+		tracked_seen += 1
+		if tracked_seen % tracked_stride == 0 && tracked_steps < tracked_budget {
+			check_tracked_step(w, &next, cmd, fx)
+		}
+	}
 
 	// totality: a defined semantic outcome, always
 	if fx.outcome != kernel.OUTCOME_CREATED && fx.outcome != kernel.OUTCOME_ROLL_FAILED && fx.outcome != kernel.OUTCOME_REJECTED {
@@ -267,7 +341,17 @@ check_transition :: proc(
 	if !slice.equal(fxb[:], fxb2[:]) {
 		fail("non-deterministic effects")
 	}
+	// A transcript carries two roots and a full derivation is O(state), so one
+	// comparison costs four. State-level checks stay at full budget; full
+	// transcript coverage returns when the bounded path replaces derivation.
 	if !structural_only && prev_valid {
+		transcript_seen += 1
+	}
+	if !structural_only &&
+	   prev_valid &&
+	   transcript_seen % transcript_stride == 0 &&
+	   transcripts_compared < TRANSCRIPT_CASES_PER_PHASE {
+		transcripts_compared += 1
 		t1 := kernel.make_transcript(w, &next, cmd, fx)
 		t2 := kernel.make_transcript(w, &next2, cmd, fx2)
 		if kernel.transcript_hash(&t1) != kernel.transcript_hash(&t2) {
@@ -461,6 +545,15 @@ sequence_case :: proc(r: ^Rng) {
 	model_consumed := w.supply.consumed
 	model_created := w.supply.created
 
+	// Carried across the whole sequence: a tracker that is re-seeded each step
+	// cannot show accumulated drift.
+	tracked_seen += 1
+	track := tracked_seen % tracked_stride == 0 && tracked_steps < tracked_budget
+	tracked: kernel.Tracked_Commitment
+	if track {
+		tracked = kernel.track_world(&w)
+	}
+
 	steps := 16 + int(rand_below(r, 33))
 	for step in 0 ..< steps {
 		step_global = step
@@ -477,10 +570,25 @@ sequence_case :: proc(r: ^Rng) {
 					break
 				}
 			}
+			pre := kernel.clone_world(&w)
+			defer kernel.destroy_world(&pre)
 			inject_at(&w.permits, at, p)
 			reserved[id] = true
 			if kernel.validate_world(&w) != .Ok {
 				fail("world invalid after permit injection")
+			}
+			// An insert: no Transition 1 outcome produces one in this domain.
+			if track {
+				touched := [?]kernel.Touched_Key{{tag = .Encounter, key = id}}
+				tracked_steps += 1
+				tracked_steps_total += 1
+				if err := kernel.tracked_advance_keys(&tracked, &pre, &w, touched[:]);
+				   err != .None {
+					fail("tracked advance refused on injection: %v", err)
+				}
+				if kernel.tracked_root(&tracked) != kernel.world_root(&w) {
+					fail("tracked commitment != full derivation after injection")
+				}
 			}
 			continue
 		}
@@ -551,6 +659,27 @@ sequence_case :: proc(r: ^Rng) {
 			}
 		}
 
+		if track {
+			check_tracked_step(&w, &next, cmd, fx, &tracked)
+		}
+
+		// This loop drives the kernel directly rather than through
+		// check_transition, so without this the phase compares no transcript.
+		transcript_seen += 1
+		if transcript_seen % transcript_stride == 0 &&
+		   transcripts_compared < TRANSCRIPT_CASES_PER_PHASE {
+			transcripts_compared += 1
+			next2, fx2 := kernel.transition(&w, cmd, ctx, &m)
+			if !world_equal(&next, &next2) {
+				fail("non-deterministic output state in sequence")
+			}
+			t1 := kernel.make_transcript(&w, &next, cmd, fx)
+			t2 := kernel.make_transcript(&w, &next2, cmd, fx2)
+			if kernel.transcript_hash(&t1) != kernel.transcript_hash(&t2) {
+				fail("non-deterministic transcript hash in sequence")
+			}
+		}
+
 		w = next
 
 		// model vs kernel counter drift
@@ -561,6 +690,10 @@ sequence_case :: proc(r: ^Rng) {
 	}
 	if v := kernel.validate_world(&w); v != .Ok {
 		fail("sequence final world invalid: %v", v)
+	}
+	// Drift persists, so the end of a sequence catches what the budget did not.
+	if track && kernel.tracked_root(&tracked) != kernel.world_root(&w) {
+		fail("tracked commitment != full derivation at end of sequence")
 	}
 	step_global = -1
 }
@@ -628,16 +761,25 @@ main :: proc() {
 			sequences = v
 		}
 	}
+	if len(os.args) > 4 {
+		if v, ok := strconv.parse_u64(os.args[4]); ok {
+			tracked_budget = v
+		}
+	}
 	seed_global = seed
 	rng := Rng{s = seed}
 
-	phase_global = "boundary"
+	enter_phase("boundary")
 	boundary_sweep()
 
-	phase_global = "id-stability"
+	enter_phase("id-stability")
 	id_stability(&rng)
 
-	phase_global = "single"
+	enter_phase(
+		"single",
+		singles / TRANSCRIPT_CASES_PER_PHASE,
+		singles / max(1, tracked_budget),
+	)
 	step_global = -1
 	for i in 0 ..< singles {
 		case_global = i
@@ -651,7 +793,11 @@ main :: proc() {
 		}
 	}
 
-	phase_global = "sequence"
+	enter_phase(
+		"sequence",
+		sequences * 32 / TRANSCRIPT_CASES_PER_PHASE,
+		sequences / max(1, tracked_budget / 32),
+	)
 	for i in 0 ..< sequences {
 		case_global = i
 		{
@@ -675,6 +821,11 @@ main :: proc() {
 	for c, i in counts.rejected {
 		fmt.printf("%s%d", ", " if i > 0 else "", c)
 	}
-	fmt.printf("], \"failures\": %d}}\n", fail_count)
+	fmt.printf(
+		"], \"tracked_steps\": %d, \"transcripts_compared\": %d, \"failures\": %d}}\n",
+		tracked_steps_total,
+		transcripts_compared,
+		fail_count,
+	)
 	os.exit(1 if fail_count > 0 else 0)
 }

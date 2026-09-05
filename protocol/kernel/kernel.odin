@@ -13,6 +13,8 @@ package kernel
 
 import canonical "../canonical"
 
+import "core:slice"
+
 // ---- enums (wire values; 0 invalid) -----------------------------------------
 
 ENCOUNTER_COMMON: u8 : 1
@@ -162,6 +164,32 @@ validate_world :: proc(w: ^World) -> Validity {
 
 // ---- canonical encodings (canonical-encoding.md §6) -----------------------------
 
+// One record encoder per domain, so the flat encoding below and the v1 domain
+// leaves cannot drift apart.
+encode_blockmon_record :: proc(buf: ^[dynamic]byte, b: Blockmon_Record) {
+	r := b
+	canonical.enc_hash32(buf, r.creature_id[:])
+	canonical.enc_hash32(buf, r.owner[:])
+	canonical.enc_hash32(buf, r.origin_permit[:])
+}
+
+encode_permit_record :: proc(buf: ^[dynamic]byte, p: Permit_Record) {
+	r := p
+	canonical.enc_hash32(buf, r.permit_id[:])
+	canonical.enc_hash32(buf, r.subject[:])
+	canonical.enc_enum(buf, r.encounter_class)
+	canonical.enc_u64(buf, r.expiry_position)
+	canonical.enc_enum(buf, r.status)
+}
+
+encode_supply :: proc(buf: ^[dynamic]byte, s: Supply) {
+	canonical.enc_u64(buf, s.epoch)
+	canonical.enc_u64(buf, s.envelope)
+	canonical.enc_u64(buf, s.minted)
+	canonical.enc_u64(buf, s.consumed)
+	canonical.enc_u64(buf, s.created)
+}
+
 encode_world :: proc(w: ^World) -> [dynamic]byte {
 	buf: [dynamic]byte
 	canonical.enc_seq_count(&buf, len(w.subjects))
@@ -170,33 +198,289 @@ encode_world :: proc(w: ^World) -> [dynamic]byte {
 	}
 	canonical.enc_seq_count(&buf, len(w.blockmon))
 	for &b in w.blockmon {
-		canonical.enc_hash32(&buf, b.creature_id[:])
-		canonical.enc_hash32(&buf, b.owner[:])
-		canonical.enc_hash32(&buf, b.origin_permit[:])
+		encode_blockmon_record(&buf, b)
 	}
 	canonical.enc_seq_count(&buf, len(w.permits))
 	for &p in w.permits {
-		canonical.enc_hash32(&buf, p.permit_id[:])
-		canonical.enc_hash32(&buf, p.subject[:])
-		canonical.enc_enum(&buf, p.encounter_class)
-		canonical.enc_u64(&buf, p.expiry_position)
-		canonical.enc_enum(&buf, p.status)
+		encode_permit_record(&buf, p)
 	}
-	canonical.enc_u64(&buf, w.supply.epoch)
-	canonical.enc_u64(&buf, w.supply.envelope)
-	canonical.enc_u64(&buf, w.supply.minted)
-	canonical.enc_u64(&buf, w.supply.consumed)
-	canonical.enc_u64(&buf, w.supply.created)
+	encode_supply(&buf, w.supply)
 	return buf
 }
 
-// Flat commitment over the canonical state bytes. Provisional stand-in for the
-// authenticated state tree, which remains OPEN in the protocol docket
-// (canonical-encoding.md §6): proves deterministic root update, not inclusion.
+// The four domain mappings of a world, borrowing the record buffers it holds.
+Domain_Entries :: struct {
+	subjects: []canonical.Tree_Entry,
+	blockmon: []canonical.Tree_Entry,
+	permits:  []canonical.Tree_Entry,
+	supply:   []canonical.Tree_Entry,
+	records:  [dynamic][dynamic]byte,
+}
+
+domain_entries :: proc(w: ^World) -> Domain_Entries {
+	canonical.tree_ensure_init()
+	d: Domain_Entries
+
+	d.subjects = make([]canonical.Tree_Entry, len(w.subjects))
+	for &s, i in w.subjects {
+		d.subjects[i] = canonical.Tree_Entry{key = s}
+	}
+
+	d.blockmon = make([]canonical.Tree_Entry, len(w.blockmon))
+	for &b, i in w.blockmon {
+		buf: [dynamic]byte
+		encode_blockmon_record(&buf, b)
+		append(&d.records, buf)
+		d.blockmon[i] = canonical.Tree_Entry{key = b.creature_id, record = buf[:]}
+	}
+
+	d.permits = make([]canonical.Tree_Entry, len(w.permits))
+	for &p, i in w.permits {
+		buf: [dynamic]byte
+		encode_permit_record(&buf, p)
+		append(&d.records, buf)
+		d.permits[i] = canonical.Tree_Entry{key = p.permit_id, record = buf[:]}
+	}
+
+	supply_buf: [dynamic]byte
+	encode_supply(&supply_buf, w.supply)
+	append(&d.records, supply_buf)
+	d.supply = make([]canonical.Tree_Entry, 1)
+	d.supply[0] = canonical.Tree_Entry {
+		key    = canonical.supply_singleton_key(),
+		record = supply_buf[:],
+	}
+
+	// CE §7: ordering is a representation concern. world_root also handles
+	// unvalidated states, where an unsorted slice yields a well-formed wrong root.
+	slice.sort_by(d.subjects, entry_key_less)
+	slice.sort_by(d.blockmon, entry_key_less)
+	slice.sort_by(d.permits, entry_key_less)
+	return d
+}
+
+entry_key_less :: proc(a: canonical.Tree_Entry, b: canonical.Tree_Entry) -> bool {
+	return hash32_less(a.key, b.key)
+}
+
+free_domain_entries :: proc(d: ^Domain_Entries) {
+	for &r in d.records {
+		delete(r)
+	}
+	delete(d.records)
+	delete(d.subjects)
+	delete(d.blockmon)
+	delete(d.permits)
+	delete(d.supply)
+}
+
+domain_roots :: proc(d: ^Domain_Entries) -> (subject, blockmon, encounter, supply: [32]byte) {
+	return canonical.domain_root(.Subject, d.subjects),
+		canonical.domain_root(.Blockmon, d.blockmon),
+		canonical.domain_root(.Encounter, d.permits),
+		canonical.domain_root(.Supply, d.supply)
+}
+
+// Full derivation from canonical state. The bounded update path must agree with
+// this byte for byte, so it stays as that path's oracle.
 world_root :: proc(w: ^World) -> [32]byte {
-	bytes := encode_world(w)
-	defer delete(bytes)
-	return canonical.protocol_hash(canonical.DOMAIN_WORLD, bytes[:])
+	d := domain_entries(w)
+	defer free_domain_entries(&d)
+	s_root, b_root, e_root, p_root := domain_roots(&d)
+	return canonical.world_commitment_v1(s_root, b_root, e_root, p_root)
+}
+
+// The authenticated keys a Transition 1 outcome writes, stated by contract
+// rather than discovered by diffing states afterwards (protocol.md §2).
+Touched_Key :: struct {
+	tag: canonical.Domain_Tag,
+	key: [32]byte,
+}
+
+t1_touched_keys :: proc(cmd: Command, fx: Effects, out: ^[dynamic]Touched_Key) {
+	if fx.outcome == OUTCOME_REJECTED {
+		return // consumes nothing and returns the input state byte-identical
+	}
+	append(out, Touched_Key{tag = .Encounter, key = cmd.permit_id})
+	append(out, Touched_Key{tag = .Supply, key = canonical.supply_singleton_key()})
+	if fx.outcome == OUTCOME_CREATED {
+		append(out, Touched_Key{tag = .Blockmon, key = fx.creature})
+	}
+}
+
+// Both accessors switch on the tag. Arithmetic selection of a field would
+// misplace a root without altering any hash.
+domain_entries_for :: proc(
+	d: ^Domain_Entries,
+	tag: canonical.Domain_Tag,
+) -> []canonical.Tree_Entry {
+	switch tag {
+	case .Subject:
+		return d.subjects
+	case .Blockmon:
+		return d.blockmon
+	case .Encounter:
+		return d.permits
+	case .Supply:
+		return d.supply
+	}
+	return nil
+}
+
+entry_record :: proc(
+	entries: []canonical.Tree_Entry,
+	key: [32]byte,
+) -> (
+	record: []byte,
+	present: bool,
+) {
+	for e in entries {
+		if e.key == key {
+			return e.record, true
+		}
+	}
+	return nil, false
+}
+
+// Bounded updates advance this; it is never rebuilt. world_root over canonical
+// state remains the oracle: both must match after each accepted transition.
+Tracked_Commitment :: struct {
+	subject_root:   [32]byte,
+	blockmon_root:  [32]byte,
+	encounter_root: [32]byte,
+	supply_root:    [32]byte,
+}
+
+// Genesis only. Every later value comes from tracked_advance.
+track_world :: proc(w: ^World) -> Tracked_Commitment {
+	d := domain_entries(w)
+	defer free_domain_entries(&d)
+	t: Tracked_Commitment
+	t.subject_root, t.blockmon_root, t.encounter_root, t.supply_root = domain_roots(&d)
+	return t
+}
+
+tracked_root :: proc(t: ^Tracked_Commitment) -> [32]byte {
+	return canonical.world_commitment_v1(
+		t.subject_root,
+		t.blockmon_root,
+		t.encounter_root,
+		t.supply_root,
+	)
+}
+
+tracked_domain_root :: proc(t: ^Tracked_Commitment, tag: canonical.Domain_Tag) -> [32]byte {
+	switch tag {
+	case .Subject:
+		return t.subject_root
+	case .Blockmon:
+		return t.blockmon_root
+	case .Encounter:
+		return t.encounter_root
+	case .Supply:
+		return t.supply_root
+	}
+	return {}
+}
+
+set_tracked_domain_root :: proc(
+	t: ^Tracked_Commitment,
+	tag: canonical.Domain_Tag,
+	root: [32]byte,
+) {
+	switch tag {
+	case .Subject:
+		t.subject_root = root
+	case .Blockmon:
+		t.blockmon_root = root
+	case .Encounter:
+		t.encounter_root = root
+	case .Supply:
+		t.supply_root = root
+	}
+}
+
+Track_Error :: enum {
+	None,
+	Malformed_Proof,
+	Old_Root_Mismatch,
+	// Needs the tree the first key left, which the pre-state lacks.
+	Domain_Touched_Twice,
+}
+
+// Per CE §7 Cost, a rejection leaves the commitment untouched and writes
+// nothing. Old_Root_Mismatch signals that the tracked value no longer matches
+// the claimed state.
+tracked_advance :: proc(
+	t: ^Tracked_Commitment,
+	before: ^World,
+	after: ^World,
+	cmd: Command,
+	fx: Effects,
+) -> Track_Error {
+	touched: [dynamic]Touched_Key
+	defer delete(touched)
+	t1_touched_keys(cmd, fx, &touched)
+	return tracked_advance_keys(t, before, after, touched[:])
+}
+
+// Touch set is passed in, not derived, so tests can reach the guards.
+tracked_advance_keys :: proc(
+	t: ^Tracked_Commitment,
+	before: ^World,
+	after: ^World,
+	touched: []Touched_Key,
+) -> Track_Error {
+	if len(touched) == 0 {
+		return .None
+	}
+
+	// Advance a copy: a later-key error must leave the caller's tracker at the
+	// pre-state, not half-advanced.
+	work := t^
+
+	// Siblings still come from a walk over state, which is the only step of
+	// this path that is not bounded (protocol.md §2 OPEN, register Q19).
+	db := domain_entries(before)
+	defer free_domain_entries(&db)
+	da := domain_entries(after)
+	defer free_domain_entries(&da)
+
+	seen: bit_set[canonical.Domain_Tag]
+	for k in touched {
+		if k.tag in seen {
+			return .Domain_Touched_Twice
+		}
+		seen |= {k.tag}
+
+		old_entries := domain_entries_for(&db, k.tag)
+		old_record, old_present := entry_record(old_entries, k.key)
+		new_record, new_present := entry_record(domain_entries_for(&da, k.tag), k.key)
+
+		sibs: [canonical.TREE_DEPTH][32]byte
+		canonical.tree_siblings(k.tag, old_entries, k.key, &sibs)
+
+		next, err := canonical.apply_update(
+			k.tag,
+			k.key,
+			old_record,
+			old_present,
+			new_record,
+			new_present,
+			sibs[:],
+			tracked_domain_root(&work, k.tag),
+		)
+		switch err {
+		case .None:
+		case .Malformed_Proof:
+			return .Malformed_Proof
+		case .Old_Root_Mismatch:
+			return .Old_Root_Mismatch
+		}
+		set_tracked_domain_root(&work, k.tag, next)
+	}
+	t^ = work
+	return .None
 }
 
 encode_manifest :: proc(m: ^Manifest) -> [dynamic]byte {

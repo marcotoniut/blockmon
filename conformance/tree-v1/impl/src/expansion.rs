@@ -3,11 +3,13 @@
 use serde_json::Value;
 
 use crate::harness::{
-    Cmp, array_field, bool_field, hash_list, hex_bytes, hex_hash, raw_hash_list, text_field,
-    u64_field,
+    Cmp, array_field, bool_field, decode_hex, hash_list, hex_bytes, hex_hash, raw_hash_list,
+    text_field, u64_field,
 };
 use crate::hash::{Hash32, WORLD_V1, protocol_hash};
-use crate::proof::{Claim, Invalid, LogicalProof, Malformed, Rejection, recompute, verify};
+use crate::proof::{
+    Claim, Invalid, LogicalProof, Malformed, Rejection, Update, apply, recompute, verify,
+};
 use crate::record::{Record, Tag};
 use crate::tree::{DEPTH, DomainState, EmptyLadder, StateError, bit, climb, leaf_from_bytes};
 use crate::world::WorldCommitmentV1;
@@ -248,68 +250,120 @@ fn proofs(doc: &Value, ladder: &EmptyLadder) -> Cmp {
 fn updates(doc: &Value, ladder: &EmptyLadder) -> Cmp {
     let mut cmp = Cmp::new("updates");
     for item in array_field(doc, "updates") {
-        let tag = tag_for_domain(text_field(item, "domain"));
-        let label = format!("{}[{}]", tag.domain_name(), u64_field(item, "count"));
-        let key = hex_hash(item, "key");
-        let entries = array_field(item, "entries_before");
-        let Ok(before) = state_from_entries(tag, entries) else {
-            cmp.failures
-                .push(format!("{label}: invalid entries_before"));
-            continue;
-        };
-        let root_before = before.root(ladder);
-        cmp.hash(
-            &format!("{label}.root_before"),
-            hex_hash(item, "root_before"),
-            root_before,
-        );
-        cmp.bytes(
-            &format!("{label}.record_before"),
-            &hex_bytes(item, "record_before"),
-            &before
-                .entries()
-                .get(&key)
-                .map(Record::encode)
-                .unwrap_or_default(),
-        );
-
-        let mut pairs: Vec<(Vec<u8>, Vec<u8>)> = entries
-            .iter()
-            .map(|e| (hex_bytes(e, "key"), hex_bytes(e, "record_bytes")))
-            .collect();
-        let after_bytes = hex_bytes(item, "record_after");
-        for pair in &mut pairs {
-            if pair.0 == key.to_vec() {
-                pair.1.clone_from(&after_bytes);
-            }
-        }
-        let Ok(after) = DomainState::from_ordered(tag, &pairs) else {
-            cmp.failures
-                .push(format!("{label}: updated entries are not valid state"));
-            continue;
-        };
-        let root_after = after.root(ladder);
-        cmp.hash(
-            &format!("{label}.root_after"),
-            hex_hash(item, "root_after"),
-            root_after,
-        );
-        cmp.number(
-            &format!("{label}.keys_touched"),
-            u64_field(item, "keys_touched"),
-            1,
-        );
-        cmp.flag(
-            &format!("{label}.siblings_unchanged"),
-            bool_field(item, "siblings_unchanged"),
-            before.siblings(ladder, &key) == after.siblings(ladder, &key),
-        );
-        cmp.holds(
-            &format!("{label}: the root moved"),
-            root_before != root_after,
-        );
+        update_case(&mut cmp, item, ladder);
     }
     cmp
+}
+
+fn update_case(cmp: &mut Cmp, item: &Value, ladder: &EmptyLadder) {
+    let tag = tag_for_domain(text_field(item, "domain"));
+    let kind = text_field(item, "kind");
+    let label = format!("{}.{kind}[{}]", tag.domain_name(), u64_field(item, "count"));
+    let key = hex_hash(item, "key");
+    let entries = array_field(item, "entries_before");
+    let Ok(before) = state_from_entries(tag, entries) else {
+        cmp.failures
+            .push(format!("{label}: invalid entries_before"));
+        return;
+    };
+
+    let present_before = bool_field(item, "present_before");
+    let present_after = bool_field(item, "present_after");
+    cmp.flag(
+        &format!("{label}.present_before"),
+        present_before,
+        before.entries().contains_key(&key),
+    );
+    cmp.holds(
+        &format!("{label}: the kind names the transition the two values make"),
+        match kind {
+            "modify" => present_before && present_after,
+            "insert" => !present_before && present_after,
+            "delete" => present_before && !present_after,
+            _ => false,
+        },
+    );
+
+    let recorded_before = before.entries().get(&key).map(Record::encode);
+    cmp.holds(
+        &format!("{label}.record_before"),
+        item.get("record_before")
+            .and_then(Value::as_str)
+            .map(decode_hex)
+            == recorded_before,
+    );
+    let root_before = before.root(ladder);
+    cmp.hash(
+        &format!("{label}.root_before"),
+        hex_hash(item, "root_before"),
+        root_before,
+    );
+
+    // The post-state as a mapping, so root_after is a full derivation and the
+    // bounded path below has something independent to be compared against.
+    let after_bytes = item
+        .get("record_after")
+        .and_then(Value::as_str)
+        .map(decode_hex);
+    let mut pairs: Vec<(Vec<u8>, Vec<u8>)> = entries
+        .iter()
+        .map(|e| (hex_bytes(e, "key"), hex_bytes(e, "record_bytes")))
+        .filter(|pair| pair.0 != key.to_vec())
+        .collect();
+    if let Some(ref bytes) = after_bytes {
+        pairs.push((key.to_vec(), bytes.clone()));
+    }
+    let Ok(after) = DomainState::from_mapping(tag, &pairs) else {
+        cmp.failures
+            .push(format!("{label}: the post-state is not valid state"));
+        return;
+    };
+    let root_after = after.root(ladder);
+    cmp.hash(
+        &format!("{label}.root_after"),
+        hex_hash(item, "root_after"),
+        root_after,
+    );
+
+    // One sibling sequence serves both climbs, and the recorded one must be the
+    // sequence the pre-state gives.
+    let siblings = hash_list(item, "siblings_leaf_to_root");
+    let derived = before.siblings(ladder, &key);
+    cmp.holds(
+        &format!("{label}: the recorded proof is the one the pre-state gives"),
+        siblings == derived,
+    );
+    cmp.flag(
+        &format!("{label}.siblings_unchanged"),
+        bool_field(item, "siblings_unchanged"),
+        derived == after.siblings(ladder, &key),
+    );
+
+    // The bounded path, from the pre-state root and the pre-state proof alone.
+    let update = Update {
+        tag: tag.discriminant(),
+        key: key.to_vec(),
+        old: recorded_before.map_or(Claim::Absent, Claim::Present),
+        new: after_bytes.map_or(Claim::Absent, Claim::Present),
+        siblings,
+        claimed_pre_root: root_before,
+    };
+    match apply(&update, ladder) {
+        Ok(bounded) => cmp.hash(&format!("{label}.bounded update"), root_after, bounded),
+        Err(e) => cmp
+            .failures
+            .push(format!("{label}: bounded update rejected: {e}")),
+    }
+
+    cmp.number(
+        &format!("{label}.keys_touched"),
+        u64_field(item, "keys_touched"),
+        1,
+    );
+    cmp.holds(
+        &format!("{label}: the root moved"),
+        root_before != root_after,
+    );
 }
 
 fn supply(doc: &Value, ladder: &EmptyLadder) -> Cmp {
@@ -574,6 +628,61 @@ fn rejections(doc: &Value, ladder: &EmptyLadder) -> Cmp {
                     rejection == Some(Rejection::Malformed(Malformed::SupplyKeyNotZero))
                         && state_rejects,
                 )
+            }
+            "update-old-root-mismatch" | "update-false-absence" => {
+                // CE §7: an old value the claimed pre-state root does not commit is
+                // refused rather than climbed. Only a rejected-update case can show
+                // this, since every accepted update anchors by construction.
+                let tag = tag_for_domain(text_field(item, "domain"));
+                let key = hex_bytes(item, "key");
+                let claimed = hex_hash(item, "claimed_old_root");
+                let siblings = hash_list(item, "siblings_leaf_to_root");
+                let old = if bool_field(item, "present_before") {
+                    Claim::Present(hex_bytes(item, "record_before"))
+                } else {
+                    Claim::Absent
+                };
+                match state_from_entries(tag, array_field(item, "entries")) {
+                    Ok(state) => {
+                        let key32: Hash32 = key.as_slice().try_into().expect("32-byte key");
+                        cmp.hash(
+                            &format!("{kind}.actual_old_root"),
+                            hex_hash(item, "actual_old_root"),
+                            state.root(ladder),
+                        );
+                        cmp.holds(
+                            &format!("{kind}: the recorded proof is the one the state gives"),
+                            siblings == state.siblings(ladder, &key32),
+                        );
+                        if kind == "update-false-absence" {
+                            cmp.hash(
+                                &format!("{kind}.absence_climbs_to"),
+                                hex_hash(item, "absence_climbs_to"),
+                                climb(&key32, ladder.at(0), &siblings),
+                            );
+                        }
+                        let update = Update {
+                            tag: tag.discriminant(),
+                            key,
+                            old,
+                            new: Claim::Absent,
+                            siblings,
+                            claimed_pre_root: claimed,
+                        };
+                        let rejection = apply(&update, ladder).err();
+                        (
+                            rejection.map_or("accepted", |r| match r {
+                                Rejection::Malformed(_) => "malformed",
+                                Rejection::Invalid(_) => "well-formed but invalid",
+                            }),
+                            rejection == Some(Rejection::Invalid(Invalid::UpdateAnchorMismatch)),
+                        )
+                    }
+                    Err((_, e)) => {
+                        cmp.failures.push(format!("{kind} entries invalid: {e:?}"));
+                        ("malformed", false)
+                    }
+                }
             }
             "domain-root-mismatch" => {
                 let tag = tag_for_domain(text_field(item, "domain"));

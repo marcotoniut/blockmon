@@ -4,6 +4,8 @@
 // partition at each level contiguous and the whole descent allocation-free.
 package canonical
 
+import "core:sync"
+
 DOMAIN_SMT_LEAF :: "blockmon/smt-leaf/v0"
 DOMAIN_SMT_NODE :: "blockmon/smt-node/v0"
 DOMAIN_SMT_EMPTY :: "blockmon/smt-empty/v0"
@@ -26,6 +28,7 @@ Tree_Entry :: struct {
 // empty_table[0] is a vacant leaf slot; empty_table[TREE_DEPTH] an empty domain.
 empty_table: [TREE_DEPTH + 1][32]byte
 empty_table_ready: bool
+tree_once: sync.Once
 
 // Call once before any tree operation. Costs TREE_DEPTH hashes. Not @(init),
 // which would have to be contextless and so could not hash at all.
@@ -35,6 +38,13 @@ tree_init :: proc() {
 		empty_table[level + 1] = node_hash(empty_table[level], empty_table[level])
 	}
 	empty_table_ready = true
+}
+
+// Idempotent and race-free: `odin test` runs many threads, and a plain
+// check-then-write would let one observe the ready flag before the table's
+// writes are visible.
+tree_ensure_init :: proc() {
+	sync.once_do(&tree_once, tree_init)
 }
 
 empty_commitment :: proc(level: int) -> [32]byte {
@@ -144,6 +154,47 @@ root_from_proof :: proc(
 
 root_from_absence :: proc(key: [32]byte, siblings: [][32]byte) -> [32]byte {
 	return tree_climb(key, empty_commitment(0), siblings)
+}
+
+Update_Error :: enum {
+	None,
+	Malformed_Proof,
+	Old_Root_Mismatch,
+}
+
+// An authenticated key update. The old value must be the one the claimed root
+// commits, so this cannot serve as a fast root constructor: it is anchored in
+// the pre-state and fails if the update does not apply to what was committed.
+// Only the leaf changes, so the sibling sequence is the same on both sides.
+apply_update :: proc(
+	tag: Domain_Tag,
+	key: [32]byte,
+	old_record: []byte,
+	old_present: bool,
+	new_record: []byte,
+	new_present: bool,
+	siblings: [][32]byte,
+	claimed_old_root: [32]byte,
+) -> (
+	new_root: [32]byte,
+	err: Update_Error,
+) {
+	tree_ensure_init()
+	if !proof_wellformed(siblings) {
+		return {}, .Malformed_Proof
+	}
+	old_leaf := empty_commitment(0)
+	if old_present {
+		old_leaf = leaf_hash(tag, key, old_record)
+	}
+	if tree_climb(key, old_leaf, siblings) != claimed_old_root {
+		return {}, .Old_Root_Mismatch
+	}
+	new_leaf := empty_commitment(0)
+	if new_present {
+		new_leaf = leaf_hash(tag, key, new_record)
+	}
+	return tree_climb(key, new_leaf, siblings), .None
 }
 
 // Malformed per §7: a sibling count other than TREE_DEPTH. Key width is

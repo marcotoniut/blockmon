@@ -39,6 +39,7 @@ pub enum Malformed {
 pub enum Invalid {
     RootMismatch,
     NotAtAssignedPosition,
+    UpdateAnchorMismatch,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,6 +87,12 @@ impl fmt::Display for Rejection {
                     write!(
                         f,
                         "invalid: claimed root not at its assigned position in world_root"
+                    )
+                }
+                Invalid::UpdateAnchorMismatch => {
+                    write!(
+                        f,
+                        "invalid: the old value does not climb to the claimed pre-state root"
                     )
                 }
             },
@@ -165,6 +172,43 @@ pub fn verify(
         return Err(Rejection::Invalid(Invalid::NotAtAssignedPosition));
     }
     Ok(())
+}
+
+/// CE §7 Authenticated update:
+/// `(tag, key, old value, new value, 256 siblings leaf to root, claimed pre-state root)`.
+/// One sibling sequence serves both climbs, since every sibling on the key's path commits a
+/// subtree that does not contain the key.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Update {
+    pub tag: u8,
+    pub key: Vec<u8>,
+    pub old: Claim,
+    pub new: Claim,
+    pub siblings: Vec<Hash32>,
+    pub claimed_pre_root: Hash32,
+}
+
+/// The post-state domain root, or the rejection the update earns.
+///
+/// The spec gives an update the rejection classes of a proof applied to both of its values, so
+/// both sides go through `recompute` rather than through a second shape check written here. The
+/// anchoring climb is required first: an old value the claimed pre-state root does not commit is
+/// refused rather than climbed, which is what stops an update being a root constructor.
+pub fn apply(update: &Update, ladder: &EmptyLadder) -> Result<Hash32, Rejection> {
+    let old_side = LogicalProof {
+        tag: update.tag,
+        key: update.key.clone(),
+        claim: update.old.clone(),
+        siblings: update.siblings.clone(),
+    };
+    if recompute(&old_side, ladder)?.recomputed_root != update.claimed_pre_root {
+        return Err(Rejection::Invalid(Invalid::UpdateAnchorMismatch));
+    }
+    let new_side = LogicalProof {
+        claim: update.new.clone(),
+        ..old_side
+    };
+    Ok(recompute(&new_side, ladder)?.recomputed_root)
 }
 
 #[cfg(test)]
