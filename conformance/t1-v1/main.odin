@@ -2,14 +2,12 @@
 // in conformance/vectors/g0a-t1-v1.json, whose roots were derived from
 // canonical-encoding.md §§2, 3, 6, 7 before the kernel moved off the flat root.
 //
-// End to end: the scenario's own command, context and manifest are replayed
-// through the kernel, and the transition's own output state is committed, so a
-// passing run means the kernel both computes the right commitment and reaches
-// the right state.
+// A pass means the kernel reaches the right state and commits it correctly:
+// each scenario replays its own command, context and manifest, and the
+// transition commits its own output state.
 //
-// Three oracles must agree on every scenario: the tier's hand-derived roots,
-// the kernel's full derivation from state, and the bounded update path walking
-// only the keys the touch contract names.
+// Three oracles must agree: the hand-derived tier, the full state
+// derivation, and the bounded update path over the touch contract's keys.
 package t1_v1_check
 
 import canonical "../../protocol/canonical"
@@ -130,16 +128,15 @@ tag_name :: proc(tag: canonical.Domain_Tag) -> string {
 	return "?"
 }
 
-// The tier writes touched keys as "<domain>:<0x hex key>".
+// Tier's write format.
 key_label :: proc(tag: canonical.Domain_Tag, key: [32]byte) -> string {
 	k := key
 	return fmt.tprintf("%s:0x%s", tag_name(tag), string(hex.encode(k[:], context.temp_allocator)))
 }
 
-// Third oracle. The tracked commitment starts from a full derivation of the
-// pre-state, is advanced by the kernel's bounded path alone, and must land on
-// the commitment the tier derived by hand. Only the shipped path runs here: a
-// second copy of the walk in this checker would test itself.
+// Third oracle: the bounded path, from a full derivation of the pre-state to
+// the tier's own commitment. Only the shipped walk runs here, since a copy of
+// it in this checker would test itself.
 check_bounded_update :: proc(
 	name: string,
 	before: ^kernel.World,

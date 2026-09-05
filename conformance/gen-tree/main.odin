@@ -133,8 +133,7 @@ domain_name :: proc(tag: canonical.Domain_Tag) -> string {
 	return "?"
 }
 
-// The three transitions a fixed-depth key can undergo. There is no fourth: a
-// key is either committed or not, before and after.
+// A key is either committed or not, before and after: there is no fourth kind.
 Update_Kind :: enum {
 	Modify,
 	Insert,
@@ -210,10 +209,8 @@ emit_proof :: proc(tag: canonical.Domain_Tag, entries: []canonical.Tree_Entry, k
 	emit("}}")
 }
 
-// One bounded update, recorded so a consumer re-derives instead of comparing:
-// the pre-state mapping, the pre-state proof, and both roots. root_after is a
-// full derivation of the post-state, never the bounded path's own output, so a
-// consumer that agrees with both has shown the two paths coincide.
+// root_after is the full post-state derivation, not the bounded path's own
+// output, so agreement between the two proves the paths coincide.
 emit_update :: proc(tag: canonical.Domain_Tag, kind: Update_Kind, n: int, r: ^Rng) {
 	before := mk_entries(tag, n, r)
 
@@ -261,9 +258,8 @@ emit_update :: proc(tag: canonical.Domain_Tag, kind: Update_Kind, n: int, r: ^Rn
 	sibs_after: [canonical.TREE_DEPTH][32]byte
 	canonical.tree_siblings(tag, after[:], key, &sibs_after)
 
-	// Every sibling on the path is a commitment to a subtree the key is not in,
-	// so only the leaf moves. This is what lets the bounded path reuse the
-	// pre-state proof, and it must hold for an insert and a delete too.
+	// Siblings commit subtrees that exclude the key, leaving only the leaf to move.
+	// This property underpins pre-state proof reuse for both inserts and deletes.
 	if !slice.equal(sibs[:], sibs_after[:]) {
 		fmt.eprintfln("sibling set moved: %s %s n=%d", domain_name(tag), kind_name(kind), n)
 		os.exit(1)
@@ -413,10 +409,8 @@ main :: proc() {
 	emit("\n  ],\n")
 
 	// --- updates: the bounded authenticated path, one key at a time ---------
-	// A key can only be modified, inserted or deleted, and the bounded path must
-	// reach the same root as a full derivation in all three. Subject records are
-	// empty, so a subject modify is not an update; supply is a singleton, so its
-	// only updates are the domain gaining the admissible key and losing it.
+	// Subject records are empty, so a subject modify is not an update; supply is
+	// a singleton, so its only updates are gaining and losing the one key.
 	emit("  \"updates\": [\n")
 	first = true
 	for tag in ([]canonical.Domain_Tag{.Subject, .Blockmon, .Encounter}) {
@@ -544,11 +538,9 @@ main :: proc() {
 		hx32(mismatch_id),
 		hx(mk_record(.Blockmon, mismatch_id, &r)),
 	)
-	// An update proof that does not open the claimed pre-root must be refused
-	// rather than climbed, which is what separates the bounded path from a fast
-	// root constructor. No accepted-update case can demonstrate this, so both
-	// directions are recorded here: a claimed root the proof does not open, and
-	// an absence claimed for a key the root commits.
+	// Refusal cannot be shown by an accepted update, so both directions are
+	// recorded: a claimed root the proof does not open, and an absence claimed
+	// for a key the root commits.
 	up_sibs: [canonical.TREE_DEPTH][32]byte
 	canonical.tree_siblings(.Blockmon, es, es[0].key, &up_sibs)
 	emit(
@@ -601,9 +593,8 @@ main :: proc() {
 	emit("  ],\n")
 
 	// --- Transition 1 under v1: authenticated access, both accounting models
-	// Derived from protocol/kernel/kernel.odin's control flow, independently of
-	// how the kernel commits. This is the concrete bound the protocol.md §2
-	// access invariant needs for the first transition.
+	// From the kernel's control flow, independently of how it commits: the
+	// concrete bound protocol.md §2 needs for the first transition.
 	per_key :: 1 + canonical.TREE_DEPTH
 	emit("  \"transition1_authenticated_access\": {{\n")
 	emit("    \"accounting\": {{\n")
