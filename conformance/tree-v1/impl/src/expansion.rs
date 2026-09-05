@@ -11,7 +11,9 @@ use crate::proof::{
     Claim, Invalid, LogicalProof, Malformed, Rejection, Update, apply, recompute, verify,
 };
 use crate::record::{Record, Tag};
-use crate::tree::{DEPTH, DomainState, EmptyLadder, StateError, bit, climb, leaf_from_bytes};
+use crate::tree::{
+    DEPTH, DomainState, EmptyLadder, StateError, bit, climb, climb_recorded, leaf_from_bytes,
+};
 use crate::world::WorldCommitmentV1;
 
 /// One leaf hash plus 256 node hashes (CE §7 Cost).
@@ -98,11 +100,12 @@ fn compare_proof(
             computed.get(i).map_or(&[][..], |h| &h[..]),
         );
     }
-    cmp.hash(
-        &format!("{prefix} climbs to the root"),
-        root,
-        climb(&key, level_zero, &hash_list(proof, "siblings_leaf_to_root")),
-    );
+    match climb_recorded(&key, level_zero, &hash_list(proof, "siblings_leaf_to_root")) {
+        Ok(recomputed) => cmp.hash(&format!("{prefix} climbs to the root"), root, recomputed),
+        Err(n) => cmp
+            .failures
+            .push(format!("{prefix}: {n} recorded siblings, not {DEPTH}")),
+    }
 
     let logical = LogicalProof {
         tag: u8::try_from(u64_field(proof, "tag")).expect("tag fits in u8"),
@@ -255,6 +258,18 @@ fn updates(doc: &Value, ladder: &EmptyLadder) -> Cmp {
     cmp
 }
 
+fn check_kind(cmp: &mut Cmp, label: &str, kind: &str, present_before: bool, present_after: bool) {
+    cmp.holds(
+        &format!("{label}: the kind names the transition the two values make"),
+        match kind {
+            "modify" => present_before && present_after,
+            "insert" => !present_before && present_after,
+            "delete" => present_before && !present_after,
+            _ => false,
+        },
+    );
+}
+
 fn update_case(cmp: &mut Cmp, item: &Value, ladder: &EmptyLadder) {
     let tag = tag_for_domain(text_field(item, "domain"));
     let kind = text_field(item, "kind");
@@ -269,19 +284,11 @@ fn update_case(cmp: &mut Cmp, item: &Value, ladder: &EmptyLadder) {
 
     let present_before = bool_field(item, "present_before");
     let present_after = bool_field(item, "present_after");
+    check_kind(cmp, &label, kind, present_before, present_after);
     cmp.flag(
         &format!("{label}.present_before"),
         present_before,
         before.entries().contains_key(&key),
-    );
-    cmp.holds(
-        &format!("{label}: the kind names the transition the two values make"),
-        match kind {
-            "modify" => present_before && present_after,
-            "insert" => !present_before && present_after,
-            "delete" => present_before && !present_after,
-            _ => false,
-        },
     );
 
     let recorded_before = before.entries().get(&key).map(Record::encode);
@@ -299,12 +306,16 @@ fn update_case(cmp: &mut Cmp, item: &Value, ladder: &EmptyLadder) {
         root_before,
     );
 
-    // The post-state as a mapping, so root_after is a full derivation and the
-    // bounded path below has something independent to be compared against.
+    // A mapping, so root_after is a full derivation for the bounded path to compare against.
     let after_bytes = item
         .get("record_after")
         .and_then(Value::as_str)
         .map(decode_hex);
+    cmp.flag(
+        &format!("{label}.present_after"),
+        present_after,
+        after_bytes.is_some(),
+    );
     let mut pairs: Vec<(Vec<u8>, Vec<u8>)> = entries
         .iter()
         .map(|e| (hex_bytes(e, "key"), hex_bytes(e, "record_bytes")))
@@ -325,8 +336,7 @@ fn update_case(cmp: &mut Cmp, item: &Value, ladder: &EmptyLadder) {
         root_after,
     );
 
-    // One sibling sequence serves both climbs, and the recorded one must be the
-    // sequence the pre-state gives.
+    // Recorded sequence must match the pre-state.
     let siblings = hash_list(item, "siblings_leaf_to_root");
     let derived = before.siblings(ladder, &key);
     cmp.holds(
@@ -339,7 +349,7 @@ fn update_case(cmp: &mut Cmp, item: &Value, ladder: &EmptyLadder) {
         derived == after.siblings(ladder, &key),
     );
 
-    // The bounded path, from the pre-state root and the pre-state proof alone.
+    // Derived from the pre-state root and proof alone.
     let update = Update {
         tag: tag.discriminant(),
         key: key.to_vec(),
@@ -544,11 +554,17 @@ fn rejections(doc: &Value, ladder: &EmptyLadder) -> Cmp {
                     "record-identifier-mismatch.the record names another key",
                     recorded_id != key,
                 );
-                cmp.bytes(
-                    "record-identifier-mismatch.identifier sits at the record's head",
-                    &bytes[..32],
-                    &recorded_id,
-                );
+                match bytes.get(..32) {
+                    Some(head) => cmp.bytes(
+                        "record-identifier-mismatch.identifier sits at the record's head",
+                        head,
+                        &recorded_id,
+                    ),
+                    None => cmp.failures.push(format!(
+                        "record-identifier-mismatch: record is {} bytes, no identifier head",
+                        bytes.len()
+                    )),
+                }
                 let unbound = LogicalProof {
                     tag: tag.discriminant(),
                     key: key.to_vec(),
@@ -630,9 +646,8 @@ fn rejections(doc: &Value, ladder: &EmptyLadder) -> Cmp {
                 )
             }
             "update-old-root-mismatch" | "update-false-absence" => {
-                // CE §7: an old value the claimed pre-state root does not commit is
-                // refused rather than climbed. Only a rejected-update case can show
-                // this, since every accepted update anchors by construction.
+                // Only a rejected-update case shows refusal, since every accepted
+                // update anchors by construction.
                 let tag = tag_for_domain(text_field(item, "domain"));
                 let key = hex_bytes(item, "key");
                 let claimed = hex_hash(item, "claimed_old_root");
@@ -697,28 +712,34 @@ fn rejections(doc: &Value, ladder: &EmptyLadder) -> Cmp {
                             root,
                         );
                         cmp.holds("domain-root-mismatch: claimed differs", claimed != root);
-                        let key = hex_bytes(
-                            entries[0].get("key").map_or(&Value::Null, |_| &entries[0]),
-                            "key",
-                        );
-                        let record = hex_bytes(&entries[0], "record_bytes");
-                        let key32: Hash32 = key.as_slice().try_into().expect("32-byte key");
-                        let proof = LogicalProof {
-                            tag: tag.discriminant(),
-                            key,
-                            claim: Claim::Present(record),
-                            siblings: state.siblings(ladder, &key32),
-                        };
-                        let mut world = WorldCommitmentV1::default();
-                        world.set_root_for(tag, claimed);
-                        let rejection = verify(&proof, &claimed, &world, ladder).err();
-                        (
-                            rejection.map_or("accepted", |r| match r {
-                                Rejection::Malformed(_) => "malformed",
-                                Rejection::Invalid(_) => "well-formed but invalid",
-                            }),
-                            rejection == Some(Rejection::Invalid(Invalid::RootMismatch)),
-                        )
+                        let first_key = entries
+                            .first()
+                            .map(|e| hex_bytes(e, "key"))
+                            .and_then(|k| Hash32::try_from(k.as_slice()).ok());
+                        if let (Some(first), Some(key32)) = (entries.first(), first_key) {
+                            let record = hex_bytes(first, "record_bytes");
+                            let proof = LogicalProof {
+                                tag: tag.discriminant(),
+                                key: key32.to_vec(),
+                                claim: Claim::Present(record),
+                                siblings: state.siblings(ladder, &key32),
+                            };
+                            let mut world = WorldCommitmentV1::default();
+                            world.set_root_for(tag, claimed);
+                            let rejection = verify(&proof, &claimed, &world, ladder).err();
+                            (
+                                rejection.map_or("accepted", |r| match r {
+                                    Rejection::Malformed(_) => "malformed",
+                                    Rejection::Invalid(_) => "well-formed but invalid",
+                                }),
+                                rejection == Some(Rejection::Invalid(Invalid::RootMismatch)),
+                            )
+                        } else {
+                            cmp.failures.push(
+                                "domain-root-mismatch: no entry with a 32-byte key".to_owned(),
+                            );
+                            ("malformed", false)
+                        }
                     }
                     Err((_, e)) => {
                         cmp.failures

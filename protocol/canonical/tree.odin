@@ -40,9 +40,8 @@ tree_init :: proc() {
 	empty_table_ready = true
 }
 
-// Idempotent and race-free: `odin test` runs many threads, and a plain
-// check-then-write would let one observe the ready flag before the table's
-// writes are visible.
+// Race-free: a simple check-then-write lets one test thread see the ready
+// flag before the table's writes.
 tree_ensure_init :: proc() {
 	sync.once_do(&tree_once, tree_init)
 }
@@ -96,6 +95,8 @@ subtree_root :: proc(tag: Domain_Tag, sorted: []Tree_Entry, depth: int) -> [32]b
 		return empty_commitment(TREE_DEPTH - depth)
 	}
 	if depth == TREE_DEPTH {
+		// A duplicate key: hashing only sorted[0] would give two states one root.
+		assert(len(sorted) == 1, "duplicate key: domain state is a mapping")
 		return leaf_hash(tag, sorted[0].key, sorted[0].record)
 	}
 	split := tree_partition(sorted, depth)
@@ -162,10 +163,52 @@ Update_Error :: enum {
 	Old_Root_Mismatch,
 }
 
-// An authenticated key update. The old value must be the one the claimed root
-// commits, so this cannot serve as a fast root constructor: it is anchored in
-// the pre-state and fails if the update does not apply to what was committed.
-// Only the leaf changes, so the sibling sequence is the same on both sides.
+// Fixed-width fields mean §2's exact-consume decoding is just a width check
+// plus assigned enum values.
+BLOCKMON_RECORD_WIDTH :: 96
+ENCOUNTER_RECORD_WIDTH :: 74
+SUPPLY_RECORD_WIDTH :: 40
+
+// §7 Malformed for one value: shape, enum values, and the identifier binding.
+record_admissible :: proc(tag: Domain_Tag, key: [32]byte, record: []byte) -> bool {
+	k := key
+	switch tag {
+	case .Subject:
+		return len(record) == 0
+	case .Blockmon:
+		return len(record) == BLOCKMON_RECORD_WIDTH && bytes_eq(record[0:32], k[:])
+	case .Encounter:
+		if len(record) != ENCOUNTER_RECORD_WIDTH {
+			return false
+		}
+		if record[64] != 1 { // encounter_class: COMMON = 1
+			return false
+		}
+		if record[73] != 1 && record[73] != 2 { // status: RESERVED = 1, CONSUMED = 2
+			return false
+		}
+		return bytes_eq(record[0:32], k[:])
+	case .Supply:
+		return len(record) == SUPPLY_RECORD_WIDTH
+	}
+	return false // an unassigned tag admits nothing
+}
+
+bytes_eq :: proc(a: []byte, b: []byte) -> bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for v, i in a {
+		if v != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// Fixed to the pre-state, so it can't be a fast root constructor.
+// The single sibling sequence drives both climbs; only the leaf moves. Both
+// values retain the full Malformed class from §7, as the Rust oracle does.
 apply_update :: proc(
 	tag: Domain_Tag,
 	key: [32]byte,
@@ -183,6 +226,15 @@ apply_update :: proc(
 	if !proof_wellformed(siblings) {
 		return {}, .Malformed_Proof
 	}
+	if tag == .Supply && key != supply_singleton_key() {
+		return {}, .Malformed_Proof
+	}
+	if old_present && !record_admissible(tag, key, old_record) {
+		return {}, .Malformed_Proof
+	}
+	if new_present && !record_admissible(tag, key, new_record) {
+		return {}, .Malformed_Proof
+	}
 	old_leaf := empty_commitment(0)
 	if old_present {
 		old_leaf = leaf_hash(tag, key, old_record)
@@ -197,8 +249,125 @@ apply_update :: proc(
 	return tree_climb(key, new_leaf, siblings), .None
 }
 
-// Malformed per §7: a sibling count other than TREE_DEPTH. Key width is
-// enforced by the type, and record decoding belongs to the record's own domain.
+// A key's final value. Since each key has at most one delta, the old value
+// is independent of the delta's position within the batch.
+Delta :: struct {
+	key:     [32]byte,
+	record:  []byte,
+	present: bool, // false: the key is absent once the batch applies
+}
+
+Batch_Error :: enum {
+	None,
+	Malformed_Proof,
+	Old_Root_Mismatch,
+	Duplicate_Key, // unnormalised: order would decide the result
+	// Climbs are the sole anchor, so an empty batch leaves its claimed root unverified.
+	Empty_Batch,
+}
+
+// CE §7: for a normalised batch the resulting root is independent of delta
+// order, because the leaf set is fixed and every node commits the leaves
+// below it. Siblings come from the entries as the batch has left them; a
+// second key in a domain sees the first key's write. entries must be sorted.
+apply_batch :: proc(
+	tag: Domain_Tag,
+	entries: []Tree_Entry,
+	deltas: []Delta,
+	claimed_old_root: [32]byte,
+	allocator := context.allocator,
+) -> (
+	new_root: [32]byte,
+	err: Batch_Error,
+) {
+	tree_ensure_init()
+	if len(deltas) == 0 {
+		return {}, .Empty_Batch
+	}
+	for a, i in deltas {
+		for b in deltas[i + 1:] {
+			if a.key == b.key {
+				return {}, .Duplicate_Key
+			}
+		}
+	}
+
+	live := make([dynamic]Tree_Entry, 0, len(entries) + len(deltas), allocator)
+	defer delete(live)
+	append(&live, ..entries)
+
+	root := claimed_old_root
+	for d in deltas {
+		old_record, old_present := entry_at(live[:], d.key)
+
+		sibs: [TREE_DEPTH][32]byte
+		tree_siblings(tag, live[:], d.key, &sibs)
+
+		next, uerr := apply_update(
+			tag,
+			d.key,
+			old_record,
+			old_present,
+			d.record,
+			d.present,
+			sibs[:],
+			root,
+		)
+		switch uerr {
+		case .None:
+		case .Malformed_Proof:
+			return {}, .Malformed_Proof
+		case .Old_Root_Mismatch:
+			return {}, .Old_Root_Mismatch
+		}
+		root = next
+		entry_write(&live, d)
+	}
+	return root, .None
+}
+
+entry_at :: proc(entries: []Tree_Entry, key: [32]byte) -> (record: []byte, present: bool) {
+	for e in entries {
+		if e.key == key {
+			return e.record, true
+		}
+	}
+	return nil, false
+}
+
+// Stores the ascending order the descent partition relies on.
+entry_write :: proc(live: ^[dynamic]Tree_Entry, d: Delta) {
+	at := len(live)
+	for e, i in live {
+		if e.key == d.key {
+			if d.present {
+				live[i] = Tree_Entry{key = d.key, record = d.record}
+			} else {
+				ordered_remove(live, i)
+			}
+			return
+		}
+		if key_greater(e.key, d.key) {
+			at = i
+			break
+		}
+	}
+	if d.present {
+		inject_at(live, at, Tree_Entry{key = d.key, record = d.record})
+	}
+}
+
+key_greater :: proc(a: [32]byte, b: [32]byte) -> bool {
+	for i in 0 ..< 32 {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
+}
+
+// The shape arm of §7's Malformed class; record admissibility is checked per
+// value in apply_update, at the proof boundary as the spec requires.
 proof_wellformed :: proc(siblings: [][32]byte) -> bool {
 	return len(siblings) == TREE_DEPTH
 }

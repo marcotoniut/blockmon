@@ -383,6 +383,15 @@ not root constructors. An old value not committed by the claimed pre-state root
 is refused, not climbed. No update can assert a root its pre-state does not
 support. A rejected update leaves the domain root at its pre-state value.
 
+A batch groups updates to distinct keys within a single domain, allowing at most
+one update per key. The resulting domain root is order-independent because every
+permutation yields the same leaf set, and node commitments depend solely on the
+leaf set below them. Anchoring remains invariant under permutation for the same
+reason: since no other update in the batch targets a specific key, that key's
+old value is identical regardless of position. Updates to the same key do not
+form a batch; they compose sequentially and must be normalised to a single final
+value before this property applies.
+
 An update's rejection classes are those of a proof, applied to both of its
 values.
 
@@ -404,7 +413,9 @@ read, which is not part of a transition's execution cost.
 An update that checks its anchor climbs twice, costing a verifier without
 domain state two leaf hashes and 512 node hashes per key. A producer with the
 domain state already knows the pre-state root and climbs once. Both costs are
-independent of domain size, as bounded by `protocol.md` §2.
+independent of domain size, as bounded by `protocol.md` §2. The representation must bound its work by tree depth, not the occupied
+population. Since keys may share up to 255 leading bits, any metric based on
+population distribution is an expectation, not a bound.
 
 **Proof encoding.** The compact wire format is deliberately unpinned. Any
 encoding, for example a presence bitmap with the non-empty siblings, MUST
