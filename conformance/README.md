@@ -10,7 +10,7 @@ semantic value → canonical bytes → protocol hash → commitment / transcript
 
 ## Evidence tiers
 
-Five evidence tiers, distinct by design.
+Six evidence tiers, distinct by design.
 
 The v0 seed and expansion corpora are historical. They prove the flat-root
 Transition 1 semantics pinned by `blockmon/world/v0`, are retained
@@ -28,7 +28,15 @@ update per case for all three transitions a key can undergo, in every domain
 that admits them. Its rejections cover both classes, including two rejected
 updates that no accepted case can demonstrate. The generator asserts
 equivalence between the bounded path and a full derivation before emission, and
-the cleanroom crate re-derives every value from the spec. `gen/` stays in the tree because it produced
+the cleanroom crate re-derives every value from the spec. The Transition 1 v1 expansion tier is generated alongside the hand-derived one.
+It covers 272 cases across both accepted outcomes and all nine reject reasons,
+recording only inputs and protocol-visible commitments. It excludes sibling
+sequences, leaf hashes, capture seeds, and WorldCommitmentV1 preimages; §7 does
+not include these in protocol objects, and providing them would expose the
+derivations the corpus is meant to test. The generator rejects any case where it
+cannot first verify the outcome, §10 conservation identities, replay, or
+bounded-path agreement.
+`gen/` stays in the tree because it produced
 the archive, but no gate runs it: a generator that can no longer reproduce the
 archive must not be able to overwrite it.
 
@@ -38,14 +46,16 @@ archive must not be able to overwrite it.
 gen/                Odin generator for the archived v0 corpora; bare run emits
                     the seed corpus, `expansion` subcommand the seeded tier
 gen-tree/           Odin generator for the v1 tree expansion tier
+gen-t1-v1/          Odin generator for the Transition 1 v1 expansion tier
 check.py            independent Python checker; re-derives every value in both
                     v0 corpora from the spec document, shares no code with the
                     Odin side
 vectors/            g0a-vectors.json and g0a-expansion.json (archived v0, with
                     ARCHIVE.sha256 pinning their digests), g0a-tree-v1.json and
                     g0a-tree-v1-expansion.json (v1 tree), g0a-t1-v1.json
-                    (Transition 1 under blockmon/world/v1). ANCHORS.sha256 pins
-                    the two hand-derived tiers, which no generator reproduces
+                    (Transition 1 under blockmon/world/v1) and
+                    g0a-t1-v1-expansion.json. ANCHORS.sha256 pins the two
+                    hand-derived tiers, which no generator reproduces
 tree/               Odin checker for the hand-derived v1 tree tier
 t1-v1/              Odin checker for the Transition 1 v1 tier; the hand-derived
                     tier, the full derivation and the bounded update path must
@@ -67,7 +77,7 @@ fuzz/               G0b property/fuzz harness for the Transition 1 kernel
 just anchors                    # the hand-derived tiers are the ones committed
 just g0a-archive                # archived v0 corpora: digests + independent check
 just tree-v1                    # v1 tree: hand-derived tier, then regenerate the expansion
-just t1-v1                      # Transition 1 under world/v1, three oracles
+just t1-v1                      # Transition 1 under world/v1: three oracles, then regenerate the expansion
 just g0b                        # 10^6 singles + 2*10^4 sequences, 500 tracked steps per phase
 just g0b 12166583181037 1000000 20000 20000   # CI depth: 20000 tracked steps per phase
 just g0c                        # Rust cleanroom over the archived v0 corpora

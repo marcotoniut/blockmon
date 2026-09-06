@@ -37,7 +37,8 @@ pre-push:
       # regenerates after the check and pushes stale committed vectors green.
       run: just gated tree-v1 && git diff --exit-code conformance/vectors/
     t1-v1:
-      run: just gated t1-v1
+      # Diff after regeneration, for the reason tree-v1 gives above.
+      run: just gated t1-v1 && git diff --exit-code conformance/vectors/
     bounded-access:
       run: just gated bounded-access
     g0c:

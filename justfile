@@ -125,11 +125,15 @@ g0a-archive:
 anchors:
 	cd conformance/vectors && shasum -a 256 -c ANCHORS.sha256
 
-# T1 under v1: the kernel must reproduce the hand-derived T1 v1 tier
+# T1 under v1: the kernel must reproduce the hand-derived T1 v1 tier, then the
+# expansion tier is regenerated. Same shape as tree-v1: the anchor is checked,
+# the generated tier is rebuilt, and CI diffs the result.
 t1-v1:
 	mkdir -p build
 	odin build ./conformance/t1-v1 -out:./build/t1-v1 -o:none {{ODIN_VET}}
 	./build/t1-v1
+	odin build ./conformance/gen-t1-v1 -out:./build/gen-t1-v1 -o:none {{ODIN_VET}}
+	./build/gen-t1-v1 > conformance/vectors/g0a-t1-v1-expansion.json
 
 # Q19: the §2 per-operation bound, measured rather than restated. Gates the
 # store's depth-only cost and its agreement with a full derivation; reports the
