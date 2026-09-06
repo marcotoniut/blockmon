@@ -1,0 +1,31 @@
+# `just gated` avoids the cost of `nix develop` when the shell is already
+# active. It keeps the pinned toolchain. Install with `just hooks`.
+
+rc: .git/lefthook-rc
+
+pre-commit:
+  parallel: false
+  skip: [merge, rebase]
+  commands:
+    lint:
+      glob: "*.{odin,py,sh,sol}"
+      run: just gated lint
+    rust:
+      glob: "*.rs"
+      run: just g0c
+
+# Check the full gate set, not just the files in the pushed commits.
+# A commit with --no-verify must not reach the remote unchecked.
+pre-push:
+  parallel: false
+  commands:
+    lint:
+      run: just gated lint
+    kernel:
+      run: just gated kernel-test
+    g0a:
+      run: just gated g0a && git diff --exit-code conformance/vectors/
+    g0b:
+      run: just gated g0b
+    g0c:
+      run: just g0c

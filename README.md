@@ -29,6 +29,8 @@ the CLI is provided.
 Key tasks (see `justfile`):
 
 ```
+just lint      # static gates: odin vet, ruff, shellcheck, forge fmt
+just hooks     # install the lefthook pre-commit and pre-push gates
 just learn3d   # run the Pikuma 3D graphics course implementation (Odin + SDL3)
 just           # list all tasks
 ```
