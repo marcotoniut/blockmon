@@ -4,7 +4,10 @@
 # committed vectors. The archived v0 corpora are digest-verified evidence
 # (just g0a-archive), never regenerated: their generator's world_root is now
 # the v1 commitment, so a fresh run of it proves nothing about the archive.
-# Hard-coded to the current toolchain pin (odin dev-2026-07); not a framework.
+# Containers pin the dev-2026-07 release. The native leg builds with whichever
+# odin is on PATH; in the pinned devshell that is dev-2026-08. A green run
+# therefore also confirms agreement between those two compilers. Not a
+# framework.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -14,10 +17,13 @@ mkdir -p "$OUT"
 
 ODIN_REL=https://github.com/odin-lang/Odin/releases/download/dev-2026-07
 
-# ---- native (darwin_arm64) ---------------------------------------------------
+# ---- native (whichever host runs this) --------------------------------------
+# Named from the host rather than assumed: a scheduled Linux runner must not
+# emit a file called darwin_arm64.json.
+NATIVE="native_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m)"
 mkdir -p "$REPO/build"
 odin build "$REPO/conformance/gen-tree" -out:"$REPO/build/xt-gen-tree" -o:none
-"$REPO/build/xt-gen-tree" > "$OUT/darwin_arm64.json"
+"$REPO/build/xt-gen-tree" > "$OUT/$NATIVE.json"
 
 linux_run() { # 1=docker platform, 2=odin release arch, 3=output name
   # Both corpora travel back as a tar stream on stdout; a host-path volume
@@ -69,10 +75,10 @@ for f in "$OUT"/*.json; do
   shasum -a 256 "$f"
 done
 COMMITTED="$REPO/conformance/vectors/g0a-tree-v1-expansion.json"
-if cmp -s "$COMMITTED" "$OUT/darwin_arm64.json"; then
-  echo "IDENTICAL  darwin_arm64.json == committed g0a-tree-v1-expansion.json"
+if cmp -s "$COMMITTED" "$OUT/$NATIVE.json"; then
+  echo "IDENTICAL  $NATIVE.json == committed g0a-tree-v1-expansion.json"
 else
-  echo "MISMATCH   darwin_arm64.json vs committed vectors"
+  echo "MISMATCH   $NATIVE.json vs committed vectors"
   status=1
 fi
 for t in linux_arm64 linux_amd64 linux_riscv64; do
@@ -80,8 +86,8 @@ for t in linux_arm64 linux_amd64 linux_riscv64; do
   if [ ! -s "$f" ]; then
     echo "MISSING    $t.json (leg produced no output)"
     status=1
-  elif cmp -s "$OUT/darwin_arm64.json" "$f"; then
-    echo "IDENTICAL  $t.json == darwin_arm64.json"
+  elif cmp -s "$OUT/$NATIVE.json" "$f"; then
+    echo "IDENTICAL  $t.json == $NATIVE.json"
   else
     echo "MISMATCH   $t.json"
     status=1

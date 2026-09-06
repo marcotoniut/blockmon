@@ -15,17 +15,38 @@ jobs:
       - run: nix develop -c just lint
       - run: nix develop -c just kernel-test
       - run: nix develop -c just canonical-test
+      - run: nix develop -c just anchors
       - run: nix develop -c just g0a-archive
       # CI has the budget for deep commitment tracking; the local default keeps
       # a run in seconds. 20000 steps per phase, not 500.
       - run: nix develop -c just g0b 12166583181037 1000000 20000 20000
       - run: nix develop -c just tree-v1
       - run: nix develop -c just t1-v1
+      # The §2 per-operation bound, measured. No commitment gate can see a
+      # population-sized cost, so this is the only step that would.
+      - run: nix develop -c just bounded-access
       # v1 tree expansion is regenerated above and must be byte-identical,
       # else the generator has drifted. v0 corpora are archived and verified
       # against pinned digests, not reproduced, since the kernel now commits
       # world/v1. The two hand-derived tiers are never regenerated.
       - run: git diff --exit-code conformance/vectors/
+
+  # Slice B needs a local chain, so it runs as its own job rather than beside the
+  # constitutional gates. It is the only executable evidence that two participant
+  # processes converge and that a checkpoint reaches settlement, so until now
+  # nothing noticed when it broke.
+  slice-b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v27
+      - run: nix develop -c just slice-b-test
+      - run: nix develop -c just slice-b-e2e
+      - run: nix develop -c just slice-b-battle-e2e
+      # The probe fixtures are promoted G0a values, so a drifted probe must not
+      # pass by rewriting them.
+      - run: git diff --exit-code prototype/slice-b/fixtures/
 
   # Separate toolchain path on purpose: the G0c crate pins its own Rust via
   # rust-toolchain.toml (rustup honors it), independent of the nix devshell.

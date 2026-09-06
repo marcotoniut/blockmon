@@ -26,6 +26,8 @@ pre-push:
 
     canonical:
       run: just gated canonical-test
+    anchors:
+      run: just gated anchors
     g0a-archive:
       run: just gated g0a-archive
     g0b:
@@ -36,6 +38,8 @@ pre-push:
       run: just gated tree-v1 && git diff --exit-code conformance/vectors/
     t1-v1:
       run: just gated t1-v1
+    bounded-access:
+      run: just gated bounded-access
     g0c:
       run: just g0c
     tree-v1-rust:

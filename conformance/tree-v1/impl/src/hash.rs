@@ -1,5 +1,7 @@
 //! CE §3 protocol hash and the CE §7 domain strings.
 
+use std::cell::Cell;
+
 use sha2::{Digest, Sha256};
 
 pub type Hash32 = [u8; 32];
@@ -9,8 +11,23 @@ pub const SMT_NODE: &str = "blockmon/smt-node/v0";
 pub const SMT_EMPTY: &str = "blockmon/smt-empty/v0";
 pub const WORLD_V1: &str = "blockmon/world/v1";
 
+thread_local! {
+    static CALLS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Instrumentation, not protocol: the observable form of CE §7's cost clause. Thread-local,
+/// so the test runner's threads each count their own work and nothing synchronises here.
+pub fn hash_calls() -> u64 {
+    CALLS.get()
+}
+
+pub fn hash_calls_reset() {
+    CALLS.set(0);
+}
+
 /// `ProtocolHash(domain, payload) = SHA-256( u8(len(domain)) ‖ domain ‖ payload )`.
 pub fn protocol_hash(domain: &str, payload: &[u8]) -> Hash32 {
+    CALLS.set(CALLS.get() + 1);
     let domain = domain.as_bytes();
     let len = u8::try_from(domain.len()).expect("CE §3: a domain is 1-255 bytes");
     let mut hasher = Sha256::new();

@@ -44,7 +44,8 @@ check.py            independent Python checker; re-derives every value in both
 vectors/            g0a-vectors.json and g0a-expansion.json (archived v0, with
                     ARCHIVE.sha256 pinning their digests), g0a-tree-v1.json and
                     g0a-tree-v1-expansion.json (v1 tree), g0a-t1-v1.json
-                    (Transition 1 under blockmon/world/v1)
+                    (Transition 1 under blockmon/world/v1). ANCHORS.sha256 pins
+                    the two hand-derived tiers, which no generator reproduces
 tree/               Odin checker for the hand-derived v1 tree tier
 t1-v1/              Odin checker for the Transition 1 v1 tier; the hand-derived
                     tier, the full derivation and the bounded update path must
@@ -63,6 +64,7 @@ fuzz/               G0b property/fuzz harness for the Transition 1 kernel
 ## Running
 
 ```
+just anchors                    # the hand-derived tiers are the ones committed
 just g0a-archive                # archived v0 corpora: digests + independent check
 just tree-v1                    # v1 tree: hand-derived tier, then regenerate the expansion
 just t1-v1                      # Transition 1 under world/v1, three oracles
@@ -92,9 +94,10 @@ independently by check.py: byte agreement alone cannot pass. The semantic
 input→output step is deliberately left to G0c; the 10⁶ property/fuzz
 hardening is G0b.
 
-`check.py` and `gen` are currently written by the same party. G0c's
-independent implementation (different engineer, no reference-source reuse)
-supersedes this check, not replaces it.
+`check.py` and `gen` share the same author. G0c's implementation came from a
+source-isolated session with no reference-source reuse. That independence is
+the basis of this evidence: one author working without access to the
+reference, not a second engineer. It supersedes this check, not replaces it.
 
 Vectors are regenerated per ProtocolManifest version and archived, never
 edited in place.

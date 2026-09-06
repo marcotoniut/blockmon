@@ -87,6 +87,7 @@ enc_seq_count :: proc(buf: ^[dynamic]byte, n: int) {
 
 protocol_hash :: proc(domain: string, payload: []byte) -> [32]byte {
 	assert(len(domain) >= 1 && len(domain) <= 255, "domain must be 1-255 bytes")
+	hash_calls += 1 // hash_counter.odin: instrumentation, never read by protocol
 	ctx: sha2.Context_256
 	sha2.init_256(&ctx)
 	l := [1]byte{byte(len(domain))}

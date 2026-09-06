@@ -592,54 +592,29 @@ main :: proc() {
 	emit(", \"correct_world_root\": \"%s\"}}\n", hx32(canonical.protocol_hash(canonical.DOMAIN_WORLD_V1, correct[:])))
 	emit("  ],\n")
 
-	// --- Transition 1 under v1: authenticated access, both accounting models
+	// --- Transition 1 under v1: which authenticated keys the outcomes touch
 	// From the kernel's control flow, independently of how it commits: the
-	// concrete bound protocol.md §2 needs for the first transition.
-	per_key :: 1 + canonical.TREE_DEPTH
+	// key sets protocol.md §2 bounds for the first transition.
+	// Only what both implementations derive from CE §6 semantics: which
+	// authenticated keys each outcome reads and writes. The hash counts that
+	// used to sit here were a formula this generator stated and the cleanroom
+	// restated, which reads as evidence without observing anything.
+	// conformance/bounded-access measures them instead.
 	emit("  \"transition1_authenticated_access\": {{\n")
-	emit("    \"accounting\": {{\n")
 	emit(
-		"      \"per_key_recomputation\": %d, \"per_key_recomputation_definition\": \"1 leaf hash + %d node hashes\",\n",
-		per_key,
-		canonical.TREE_DEPTH,
+		"    \"cost_evidence\": \"per-key and per-transition hash counts are measured by conformance/bounded-access; a count stated here and restated by a checker is not an observation\",\n",
+	)
+	emit("    \"reads\": {{\"subject\": 1, \"encounter\": 1, \"supply\": 1, \"total\": 3}},\n")
+	emit(
+		"    \"rejected\": {{\"writes\": [], \"total\": 0, \"note\": \"state is byte-identical, so every root is unchanged\"}},\n",
 	)
 	emit(
-		"      \"world_commitment_hash\": 1, \"world_commitment_definition\": \"one %s hash over the 128-byte WorldCommitmentV1 encoding; the encoding itself is not a hash\",\n",
-		canonical.DOMAIN_WORLD_V1,
+		"    \"roll_failed\": {{\"writes\": [\"encounter:permit_id\", \"supply:singleton\"], \"total\": 2}},\n",
 	)
 	emit(
-		"      \"full_state_kernel\": \"holds the whole world, so an authenticated read costs no hashing and only writes recompute\",\n",
+		"    \"created\": {{\"writes\": [\"encounter:permit_id\", \"supply:singleton\", \"blockmon:creature_id\"], \"total\": 3}},\n",
 	)
-	emit(
-		"      \"stateless_verifier\": \"has no state, so each authenticated read costs one proof climb of %d hashes\"\n",
-		per_key,
-	)
-	emit("    }},\n")
-	emit(
-		"    \"reads\": {{\"subject\": 1, \"encounter\": 1, \"supply\": 1, \"total\": 3, \"full_state_kernel_hashes\": 0, \"stateless_verify_hashes\": %d}},\n",
-		3 * per_key,
-	)
-	emit(
-		"    \"rejected\": {{\"writes\": [], \"total\": 0, \"write_recomputation_hashes\": 0, \"note\": \"state is byte-identical, so every root is unchanged\"}},\n",
-	)
-	emit(
-		"    \"roll_failed\": {{\"writes\": [\"encounter:permit_id\", \"supply:singleton\"], \"total\": 2, \"write_recomputation_hashes\": %d}},\n",
-		2 * per_key + 1,
-	)
-	emit(
-		"    \"created\": {{\"writes\": [\"encounter:permit_id\", \"supply:singleton\", \"blockmon:creature_id\"], \"total\": 3, \"write_recomputation_hashes\": %d}},\n",
-		3 * per_key + 1,
-	)
-	emit("    \"bound\": {{\n")
-	emit("      \"max_keys_read\": 3, \"max_keys_written\": 3,\n")
-	emit(
-		"      \"max_write_recomputation_hashes\": %d, \"max_write_recomputation_formula\": \"3 * (1 + %d) + 1\",\n",
-		3 * per_key + 1,
-		canonical.TREE_DEPTH,
-	)
-	emit("      \"max_stateless_verify_hashes\": %d,\n", 3 * per_key)
-	emit("      \"independent_of_state_size\": true\n")
-	emit("    }}\n")
+	emit("    \"bound\": {{\"max_keys_read\": 3, \"max_keys_written\": 3}}\n")
 	emit("  }}\n")
 	emit("}}\n")
 

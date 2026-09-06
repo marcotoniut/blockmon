@@ -103,21 +103,11 @@
     {"class": "well-formed but invalid", "kind": "wrong-commitment-position", "correct_bytes": "0x5286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb88915286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb88905286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb88905286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb8891", "transposed_bytes": "0x5286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb88915286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb88905286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb88915286c5d974ce1ce8d38417da1cfd0e3ed7392da294458c2cc1b1f61f03bb8890", "transposition": "encounter_root and supply_root exchanged", "transposed_world_root": "0x82864c83644385b604fc06ef1fd9b09c66969a88f0524e2d7c925048dc2e10bc", "correct_world_root": "0xd735f5ca347f6c192438a3a95d15254b1184a49cb00f61242f6c752883ceb0cb"}
   ],
   "transition1_authenticated_access": {
-    "accounting": {
-      "per_key_recomputation": 257, "per_key_recomputation_definition": "1 leaf hash + 256 node hashes",
-      "world_commitment_hash": 1, "world_commitment_definition": "one blockmon/world/v1 hash over the 128-byte WorldCommitmentV1 encoding; the encoding itself is not a hash",
-      "full_state_kernel": "holds the whole world, so an authenticated read costs no hashing and only writes recompute",
-      "stateless_verifier": "has no state, so each authenticated read costs one proof climb of 257 hashes"
-    },
-    "reads": {"subject": 1, "encounter": 1, "supply": 1, "total": 3, "full_state_kernel_hashes": 0, "stateless_verify_hashes": 771},
-    "rejected": {"writes": [], "total": 0, "write_recomputation_hashes": 0, "note": "state is byte-identical, so every root is unchanged"},
-    "roll_failed": {"writes": ["encounter:permit_id", "supply:singleton"], "total": 2, "write_recomputation_hashes": 515},
-    "created": {"writes": ["encounter:permit_id", "supply:singleton", "blockmon:creature_id"], "total": 3, "write_recomputation_hashes": 772},
-    "bound": {
-      "max_keys_read": 3, "max_keys_written": 3,
-      "max_write_recomputation_hashes": 772, "max_write_recomputation_formula": "3 * (1 + 256) + 1",
-      "max_stateless_verify_hashes": 771,
-      "independent_of_state_size": true
-    }
+    "cost_evidence": "per-key and per-transition hash counts are measured by conformance/bounded-access; a count stated here and restated by a checker is not an observation",
+    "reads": {"subject": 1, "encounter": 1, "supply": 1, "total": 3},
+    "rejected": {"writes": [], "total": 0, "note": "state is byte-identical, so every root is unchanged"},
+    "roll_failed": {"writes": ["encounter:permit_id", "supply:singleton"], "total": 2},
+    "created": {"writes": ["encounter:permit_id", "supply:singleton", "blockmon:creature_id"], "total": 3},
+    "bound": {"max_keys_read": 3, "max_keys_written": 3}
   }
 }

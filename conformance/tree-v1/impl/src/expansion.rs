@@ -16,9 +16,6 @@ use crate::tree::{
 };
 use crate::world::WorldCommitmentV1;
 
-/// One leaf hash plus 256 node hashes (CE §7 Cost).
-const PER_KEY_RECOMPUTATION: u64 = 1 + DEPTH as u64;
-
 pub struct Report {
     pub sections: Vec<Cmp>,
 }
@@ -816,23 +813,23 @@ fn rejections(doc: &Value, ladder: &EmptyLadder) -> Cmp {
 }
 
 /// The CE §7 Cost accounting, re-derived: reads and writes come from the CE §6 precondition
-/// list and its consume-on-attempt rule, hashes from one leaf plus 256 nodes per key.
+/// list and its consume-on-attempt rule.
 fn authenticated_access(doc: &Value) -> Cmp {
     let mut cmp = Cmp::new("transition1_authenticated_access");
     let section = doc
         .get("transition1_authenticated_access")
         .expect("section");
 
-    let accounting = section.get("accounting").expect("accounting");
-    cmp.number(
-        "accounting.per_key_recomputation",
-        u64_field(accounting, "per_key_recomputation"),
-        PER_KEY_RECOMPUTATION,
-    );
-    cmp.number(
-        "accounting.world_commitment_hash",
-        u64_field(accounting, "world_commitment_hash"),
-        1,
+    // Hash counts are deliberately absent from this section. Re-deriving a
+    // formula the generator also applied compares two statements of the spec,
+    // never an execution, so the count belongs to a harness that measures it.
+    cmp.holds(
+        "no restated hash counts",
+        ["accounting", "bound"].into_iter().all(|k| {
+            section
+                .get(k)
+                .is_none_or(|v| !contains_key_containing(v, "hashes"))
+        }) && !contains_key_containing(section, "independent_of_state_size"),
     );
 
     // CE §6 preconditions read subjects, the named permit, and supply.
@@ -844,25 +841,10 @@ fn authenticated_access(doc: &Value) -> Cmp {
         total_reads += count;
     }
     cmp.number("reads.total", u64_field(reads, "total"), total_reads);
-    cmp.number(
-        "reads.full_state_kernel_hashes",
-        u64_field(reads, "full_state_kernel_hashes"),
-        0,
-    );
-    cmp.number(
-        "reads.stateless_verify_hashes",
-        u64_field(reads, "stateless_verify_hashes"),
-        total_reads * PER_KEY_RECOMPUTATION,
-    );
 
-    // CE §7 Cost: a rejected transition incurs no state-recomputation hash.
+    // CE §7 Cost: a rejected transition writes nothing at all.
     let rejected = section.get("rejected").expect("rejected");
     cmp.number("rejected.total", u64_field(rejected, "total"), 0);
-    cmp.number(
-        "rejected.write_recomputation_hashes",
-        u64_field(rejected, "write_recomputation_hashes"),
-        0,
-    );
     cmp.holds(
         "rejected.writes is empty",
         array_field(rejected, "writes").is_empty(),
@@ -882,11 +864,6 @@ fn authenticated_access(doc: &Value) -> Cmp {
             array_field(branch, "writes").len() as u64,
             keys,
         );
-        cmp.number(
-            &format!("{outcome}.write_recomputation_hashes"),
-            u64_field(branch, "write_recomputation_hashes"),
-            keys * PER_KEY_RECOMPUTATION + 1,
-        );
     }
 
     let bound = section.get("bound").expect("bound");
@@ -900,22 +877,18 @@ fn authenticated_access(doc: &Value) -> Cmp {
         u64_field(bound, "max_keys_written"),
         3,
     );
-    cmp.number(
-        "bound.max_write_recomputation_hashes",
-        u64_field(bound, "max_write_recomputation_hashes"),
-        3 * PER_KEY_RECOMPUTATION + 1,
-    );
-    cmp.number(
-        "bound.max_stateless_verify_hashes",
-        u64_field(bound, "max_stateless_verify_hashes"),
-        total_reads * PER_KEY_RECOMPUTATION,
-    );
-    cmp.flag(
-        "bound.independent_of_state_size",
-        bool_field(bound, "independent_of_state_size"),
-        true,
-    );
     cmp
+}
+
+/// Guards the section against a restated count creeping back in.
+fn contains_key_containing(value: &Value, needle: &str) -> bool {
+    match value {
+        Value::Object(map) => map
+            .iter()
+            .any(|(k, v)| k.contains(needle) || contains_key_containing(v, needle)),
+        Value::Array(items) => items.iter().any(|v| contains_key_containing(v, needle)),
+        _ => false,
+    }
 }
 
 pub fn run(doc: &Value, ladder: &EmptyLadder) -> Report {

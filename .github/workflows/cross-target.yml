@@ -1,0 +1,28 @@
+name: cross-target
+
+# The shape prototype-and-technology.md §3 0a already describes: off the
+# per-change path because it needs docker and a riscv64 container, so scheduled
+# and manually dispatchable instead.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  cross-target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v27
+      # binfmt for the arm64 and riscv64 legs; the amd64 leg is native here.
+      - uses: docker/setup-qemu-action@v3
+      - run: nix develop -c bash conformance/cross-target.sh "$RUNNER_TEMP/cross"
+      # The digests are the result. Keeping them makes a green run inspectable
+      # after the log expires.
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-target-corpora
+          path: ${{ runner.temp }}/cross/*.json
+          if-no-files-found: error

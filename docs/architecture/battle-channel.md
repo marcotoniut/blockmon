@@ -92,6 +92,8 @@ The recorded outcome MUST identify the state it came from: the accepted final ch
 
 The verifier is implemented in the anchor venue's native environment; for an EVM candidate that is Solidity, with small Yul/assembly sections only where justified. It is never implemented in the kernel language, and the battle simulator is never ported into a contract for the prototype.
 
+In the slice, the channel's Ed25519 identity and the contract's secp256k1 settlement authority are distinct trust systems. Anchoring authenticates participants but does not authorise settlement. The prototype's contract verifies wallet signatures over the checkpoint digest and nothing else. It requires both ephemeral keys to be anchored yet never reads their values or verifies a channel signature, leaving the anchored ephemeral key outside settlement authority. Only the production anchor venue, which verifies ephemeral signatures directly, joins the two.
+
 Cost targets: cooperative settlement O(1) at the anchor venue (and aggregated before reaching the settlement chain, per §1); disputed settlement proportional to the disputed work where possible; future validity settlement verifies one compact proof.
 
 ## 6. Disconnects, Timeouts, Disputes

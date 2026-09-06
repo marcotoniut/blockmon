@@ -6,12 +6,13 @@ pragma solidity 0.8.24;
 /// final checkpoint, authorisations/signatures, supersession, non-duplication.
 /// Deliberately not generalised (prototype-and-technology.md §2.2).
 ///
-/// Stand-in limitation, on purpose: channel operations are Ed25519-signed
-/// off-chain and the EVM cannot verify those cheaply, so settlement here is
-/// authorised by wallet co-signatures over the checkpoint digest. The
-/// stateCommitment commits to the Ed25519-signed transcript head, so the
-/// channel evidence is bound. In production the anchor venue (the canonical
-/// layer) verifies the ephemeral signatures directly.
+/// Deliberate limitation: channel ops are Ed25519-signed off-chain, which the
+/// EVM cannot cheaply verify. Settlement here is therefore authorised by
+/// wallet co-signatures over the checkpoint digest. registerKeys anchors both
+/// ephemeral keys and _checkDualSigned requires them present, but never reads
+/// their values or verifies a channel signature. Nothing on chain ties this
+/// outcome to the channel that produced it. In production, the anchor venue
+/// verifies the ephemeral signatures directly.
 contract BattleSettlement {
     enum Status {
         None,
@@ -129,7 +130,10 @@ contract BattleSettlement {
         require(msg.sender == b.playerA || msg.sender == b.playerB, "not a participant");
         require(block.timestamp > b.deadline, "deadline not reached");
         if (seq == 0) {
+            // No checkpoint means nothing authorised a state, so the caller's
+            // stateCommitment is discarded rather than recorded unsigned.
             result = 3;
+            stateCommitment = bytes32(0);
         } else {
             require(result == 1 || result == 2 || result == 3, "bad result");
             _checkDualSigned(b, battleId, seq, stateCommitment, result, sigA, sigB);

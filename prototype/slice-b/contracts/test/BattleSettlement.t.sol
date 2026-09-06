@@ -147,6 +147,19 @@ contract BattleSettlementTest {
         require(settledCommitment(BATTLE_ID) == bytes32(0), "default outcome must record no state");
     }
 
+    // Regression: with no checkpoint the signature check is skipped, so a
+    // commitment carried on that call would reach finalCommitment unsigned.
+    function test_seqZeroTimeoutDiscardsACallerSuppliedCommitment() public {
+        registerBoth();
+        bytes32 unsignedState = keccak256("a state neither participant signed");
+        vm.warp(DEADLINE + 1);
+        vm.prank(playerA);
+        c.initiateTimeout(BATTLE_ID, 0, unsignedState, 0, "", "");
+        vm.warp(DEADLINE + 1 + c.RESPONSE_WINDOW() + 1);
+        c.finalizeTimeout(BATTLE_ID);
+        require(settledCommitment(BATTLE_ID) == bytes32(0), "unsigned commitment reached the settled state");
+    }
+
     function test_staleCheckpointSuperseded() public {
         registerBoth();
         bytes32 stale = keccak256("state-4");

@@ -12,8 +12,9 @@ contracts/          Foundry project: BattleSettlement.sol + negative-path tests
 channel/            participant adapter: transport, session, transcript, checkpoint,
                     read-only chain access (chain.odin)
 probe/              single-process Odin protocol probe (not a game client)
-player-a/           participant A: A's ephemeral seeds and role wiring, nothing else
-player-b/           participant B: B's ephemeral seeds and role wiring, nothing else
+player-a/           participant A: role wiring only; its own secrets are generated at
+                    first use and kept in the run directory
+player-b/           participant B: the same, for B
 e2e.sh              full round trip against a local anvil
 battle.sh           dual-process run: two participant processes, one battle
 fixtures/           deterministic probe vectors (feed G0a)
@@ -113,8 +114,7 @@ participants, capturing each one's stdout and stderr separately, and asserting.
 independently derived values) and `wire-{a,b}.log` (every frame either side sent
 or received, in full). The harness asserts that what A sent is byte-identical to
 what B received and vice versa, so the entire information flow across the boundary
-is on disk and readable. All of it hashes the same on every run, manual or
-automated, because the key material, moves and ruleset are pinned.
+is on disk and readable. Transcript values stay constant across manual and automated runs because the moves and ruleset are fixed. Signatures and session witnesses do not. Each participant generates fresh battle material per run, so `session-{a,b}.json` and the wire logs produce different hashes every time.
 
 ### Failure bounds
 
@@ -136,7 +136,7 @@ topology. It is also not evidence for G0c: both participants share
 ## Stand-in decisions (deliberate, documented)
 
 - The contract stands in for the canonical constitutional layer (`battle-channel.md` §1). Per-battle L1 transactions are a slice artefact, not the production settlement shape.
-- The EVM cannot verify Ed25519 cheaply, so on-chain settlement authorisation uses wallet secp256k1 co-signatures over the checkpoint digest; the Ed25519 channel evidence is bound through `stateCommitment`. In production the canonical layer verifies the ephemeral signatures directly.
+- The EVM cannot verify Ed25519 cheaply, so on-chain settlement authorisation uses wallet secp256k1 co-signatures over the checkpoint digest. The contract requires both ephemeral keys to be anchored but never reads them or checks a channel signature, so the Ed25519 channel evidence is not bound on chain: the two are separate trust systems in this slice. In production the anchor venue verifies the ephemeral signatures directly.
 - Wallet keys are anvil's deterministic accounts, signed via `cast`; Odin contains no chain cryptography (`architecture.md` §21).
 - Key seeds and battle entropy are fixed test vectors, so every run emits byte-identical fixtures (`fixtures/probe-vectors.json`).
 - Protocol bytes (op encoding, hashes, state commitment) come from `protocol/canonical`, the implementation of `docs/architecture/canonical-encoding.md`; the probe's transcript values are identical to the promoted vectors in `conformance/vectors/g0a-vectors.json`.

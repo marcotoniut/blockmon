@@ -119,11 +119,25 @@ g0a-archive:
 	cd conformance/vectors && shasum -a 256 -c ARCHIVE.sha256
 	python3 conformance/check.py
 
+# These two hand-derived tiers act as anchors. A generator cannot
+# reproduce them, so any quiet edit would otherwise go unnoticed.
+# Change one and you must update its digest in the same commit.
+anchors:
+	cd conformance/vectors && shasum -a 256 -c ANCHORS.sha256
+
 # T1 under v1: the kernel must reproduce the hand-derived T1 v1 tier
 t1-v1:
 	mkdir -p build
 	odin build ./conformance/t1-v1 -out:./build/t1-v1 -o:none {{ODIN_VET}}
 	./build/t1-v1
+
+# Q19: the §2 per-operation bound, measured rather than restated. Gates the
+# store's depth-only cost and its agreement with a full derivation; reports the
+# kernel path's scaling, which stays green when the kernel is wired to a store.
+bounded-access sizes="1 16 256 4096 32768":
+	mkdir -p build
+	odin build ./conformance/bounded-access -out:./build/bounded-access -o:speed {{ODIN_VET}}
+	./build/bounded-access {{sizes}}
 
 # v1 tree: the independently derived Rust checker against both v1 tiers
 tree-v1-rust:

@@ -396,8 +396,7 @@ pub fn run(ladder: &EmptyLadder) -> Vec<Case> {
             && untouched.cost == Cost::default()
             && touched.cost
                 == Cost {
-                    leaf_hashes: 1,
-                    node_hashes: DEPTH,
+                    hashes: 1 + DEPTH as u64 + 1,
                     world_recomputations: 1,
                 },
         "0 world recomputations rejected, 1 accepted".to_owned(),

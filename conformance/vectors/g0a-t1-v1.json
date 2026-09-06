@@ -6,8 +6,7 @@
   "bound": {
     "max_keys_read": 3,
     "max_keys_written": 3,
-    "per_key_recomputation": 257,
-    "world_recomputation_when_state_changes": 1
+    "cost_evidence": "hash counts are measured by conformance/bounded-access; a count recorded here would be read by nobody and restated by anyone who did"
   },
   "checks": [
     {

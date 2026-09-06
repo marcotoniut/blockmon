@@ -214,6 +214,51 @@ json.dump({
 EOF
 pass "battle descriptor written from anchored state only (no secrets): $RUN/battle.json"
 
+# --- the descriptor is a joining instruction, never evidence -----------------
+# battle-channel.md §3. One field a participant checks against the chain is
+# mutated per case. Each must be refused from the chain-backed verification
+# path, named by its own message, before any channel exchange starts: no
+# success line, no transport, no frames, no evidence file.
+tamper_case() { # 1=label 2=field 3=value 4=expected refusal
+  local label="$1" field="$2" value="$3" want="$4"
+  local desc="$RUN/tampered.json" out="$RUN/tamper.out" err="$RUN/tamper.err"
+  local rc=0
+
+  python3 - "$RUN/battle.json" "$desc" "$field" "$value" <<'EOF'
+import json
+import sys
+
+src, dst, field, value = sys.argv[1:5]
+d = json.load(open(src))
+assert field in d, f"{field} is not a descriptor field"
+assert d[field] != value, f"{field} mutation changes nothing"
+d[field] = value
+json.dump(d, open(dst, "w"), indent=2)
+EOF
+
+  "$REPO/build/player-a" play "$desc" "$RUN" >"$out" 2>"$err" || rc=$?
+  [ "$rc" -ne 0 ] || fail "tamper/$label: a descriptor the chain contradicts was accepted"
+  grep -qF "$want" "$err" ||
+    fail "tamper/$label: refused, but not by descriptor verification: $(tr '\n' ' ' <"$err")"
+  if grep -q '^anchored:' "$out"; then
+    fail "tamper/$label: descriptor verification reported success"
+  fi
+  if grep -q '^transport:' "$out"; then
+    fail "tamper/$label: the channel exchange began"
+  fi
+  [ ! -s "$RUN/wire-a.log" ] || fail "tamper/$label: frames were logged"
+  [ ! -s "$RUN/session-a.json" ] || fail "tamper/$label: channel evidence was written"
+  rm -f "$desc" "$out" "$err"
+}
+
+tamper_case ruleset ruleset_hash "$(cast keccak 'blockmon/ruleset/not-this-battle')" \
+  "is not the one this battle was joined under"
+tamper_case counterparty-key ed_pk_b "$(cast keccak 'not-b-ephemeral')" \
+  "the keys anchored for b are not the ones in the battle descriptor"
+tamper_case participant-wallet player_b_wallet 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
+  "the anchored participants are not the ones in the battle descriptor"
+pass "descriptor tampering: wrong ruleset, counterparty key and participant wallet each refused against the chain"
+
 # --- participants -----------------------------------------------------------
 if [ "$MODE" = auto ]; then
   "$REPO/build/player-a" play "$RUN/battle.json" "$RUN" >"$RUN/player-a.out" 2>"$RUN/player-a.err" &

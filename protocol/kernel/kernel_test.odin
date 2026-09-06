@@ -185,6 +185,70 @@ zero_round_period_rejected :: proc(t: ^testing.T) {
 	expect_rejected(t, &w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m, REJECT_INVALID_STATE)
 }
 
+// CE §6 pins the sequence normatively: the kernel evaluates exactly these
+// checks in this order and the first failure is the reason. Swapping two
+// adjacent reasons alters no root and no encoded byte, so no vector tier or
+// commitment oracle can see it; an independent implementation has already
+// diverged here once (conformance/g0c/REPORT.md).
+PRECONDITION_ORDER :: [9]u8 {
+	REJECT_INVALID_STATE,
+	REJECT_WRONG_EPOCH,
+	REJECT_ENTROPY_MISMATCH,
+	REJECT_UNKNOWN_SUBJECT,
+	REJECT_UNKNOWN_PERMIT,
+	REJECT_PERMIT_NOT_RESERVED,
+	REJECT_WRONG_SUBJECT,
+	REJECT_PERMIT_EXPIRED,
+	REJECT_NO_CAPABILITY,
+}
+
+// One defect per position, each sufficient on its own against test_world.
+apply_defect :: proc(at: int, w: ^World, cmd: ^Command, ctx: ^Context) {
+	switch at {
+	case 0:
+		w.supply.created = w.supply.consumed + 1 // breaks created ≤ consumed
+	case 1:
+		ctx.epoch += 1
+	case 2:
+		ctx.entropy_round += 1
+	case 3:
+		cmd.subject = fill(0xEE) // no such subject
+	case 4:
+		cmd.permit_id = fill(0xEE)
+	case 5:
+		w.permits[0].status = PERMIT_CONSUMED
+	case 6:
+		cmd.subject = SUBJECT_C // exists, but the permit is A's
+	case 7:
+		w.permits[0].expiry_position = ctx.position // exclusive bound
+	case 8:
+		w.supply.consumed = w.supply.minted
+	}
+}
+
+@(test)
+precondition_order_is_the_specified_one :: proc(t: ^testing.T) {
+	order := PRECONDITION_ORDER
+	for first in 0 ..< len(order) {
+		w := test_world()
+		defer destroy_world(&w)
+		m := test_manifest()
+		cmd := test_cmd()
+		ctx := test_ctx(ENTROPY_SUCCESS)
+
+		// Descending, so where two defects write one field the earlier
+		// position wins and the expected reason is the one under test.
+		for i := len(order) - 1; i >= first; i -= 1 {
+			apply_defect(i, &w, &cmd, &ctx)
+		}
+
+		next, fx := transition(&w, cmd, ctx, &m)
+		defer destroy_world(&next)
+		testing.expect_value(t, fx.outcome, OUTCOME_REJECTED)
+		testing.expect_value(t, fx.reject_reason, order[first])
+	}
+}
+
 @(test)
 unsorted_world_invalid :: proc(t: ^testing.T) {
 	w: World
