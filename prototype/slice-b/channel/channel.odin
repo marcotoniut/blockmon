@@ -16,6 +16,7 @@ package channel
 
 import canonical "../../../protocol/canonical"
 
+import "core:crypto"
 import "core:crypto/ed25519"
 import "core:crypto/hash"
 import "core:crypto/hkdf"
@@ -25,6 +26,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:net"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -69,9 +71,78 @@ Role :: enum {
 }
 
 Config :: struct {
-	role:    Role,
-	seed_ed: [32]byte,
-	seed_x:  [32]byte,
+	role: Role,
+}
+
+// Where a participant's own battle secrets live. `keys` and `play` are separate
+// processes, so material that did not persist would not be the material the
+// anchor venue recorded. The caller names the location: a client's key file
+// must not depend on the working directory it happens to be started in.
+secret_path :: proc(run_dir: string, role: Role) -> string {
+	joined, _ := filepath.join({run_dir, fmt.tprintf("player-%s.secret", letter(role))})
+	return joined
+}
+
+// A participant's private battle material. It is generated from the system
+// entropy source, never derived from anything the peer contributes, and never
+// leaves this process: only the public keys go to the anchor venue.
+Secrets :: struct {
+	ed: [32]byte,
+	x:  [32]byte,
+}
+
+// The file is the battle's private half, so it is created readable and
+// writable by its owner alone.
+SECRETS_PERM :: os.Permissions{.Read_User, .Write_User}
+
+// Fresh per battle. Two runs must not share material, and neither participant
+// may predict the other's, so this is the one place the prototype takes real
+// randomness rather than a pinned constant.
+generate_secrets :: proc() -> (out: Secrets) {
+	when !crypto.HAS_RAND_BYTES {
+		die("no system entropy source: refusing to invent battle secrets")
+	}
+	crypto.rand_bytes(out.ed[:])
+	crypto.rand_bytes(out.x[:])
+	if out.ed == {} || out.x == {} {
+		die("the entropy source returned zero material")
+	}
+	return
+}
+
+// Load, or generate and persist on first use. `create` is false wherever the
+// keys must already be the anchored ones: silently minting new material there
+// would produce a session no venue authorised.
+load_secrets :: proc(path: string, create: bool) -> Secrets {
+	if data, err := os.read_entire_file_from_path(path, context.allocator); err == nil {
+		defer delete(data)
+		if len(data) != 64 {
+			die("%s holds %d bytes, not the 64 a participant's material needs", path, len(data))
+		}
+		s: Secrets
+		copy(s.ed[:], data[0:32])
+		copy(s.x[:], data[32:64])
+		return s
+	}
+	if !create {
+		die("%s is missing: this run must use the material its keys were anchored from", path)
+	}
+	s := generate_secrets()
+	// The directory holds secrets, so it is the participant's own: a client
+	// creates it rather than depending on a harness having done so.
+	if dir := filepath.dir(path); dir != "" && dir != "." {
+		if err := os.make_directory(dir, os.Permissions{.Read_User, .Write_User, .Execute_User});
+		   err != nil && err != os.General_Error.Exist {
+			die("cannot create %s: %v", dir, err)
+		}
+	}
+	buf: [64]byte
+	copy(buf[0:32], s.ed[:])
+	copy(buf[32:64], s.x[:])
+	if err := os.write_entire_file(path, buf[:], SECRETS_PERM); err != nil {
+		die("cannot write %s: %v", path, err)
+	}
+	return s
 }
 
 // Public battle state, mirrored from the anchor venue by the harness. Every
@@ -213,22 +284,26 @@ result_name :: proc(result: u8) -> string {
 
 run :: proc(cfg: Config) {
 	args := os.args
-	if len(args) >= 2 && args[1] == "keys" {
-		emit_keys(cfg)
+	if len(args) == 3 && args[1] == "keys" {
+		emit_keys(cfg, load_secrets(secret_path(args[2], cfg.role), true))
 		return
 	}
 	if len(args) == 4 && args[1] == "play" {
-		play(cfg, args[2], args[3])
+		play(cfg, load_secrets(secret_path(args[3], cfg.role), false), args[2], args[3])
 		return
 	}
-	fmt.eprintfln("usage: %s keys | %s play <battle-descriptor.json> <run-dir>", args[0], args[0])
+	fmt.eprintfln(
+		"usage: %s keys <run-dir> | %s play <battle-descriptor.json> <run-dir>",
+		args[0],
+		args[0],
+	)
 	os.exit(2)
 }
 
-emit_keys :: proc(cfg: Config) {
-	ed := ed_private(cfg.seed_ed)
+emit_keys :: proc(cfg: Config, secrets: Secrets) {
+	ed := ed_private(secrets.ed)
 	ed_pk := ed_public(&ed)
-	x_pk := x_public(cfg.seed_x)
+	x_pk := x_public(secrets.x)
 	fmt.printfln(
 		"{{\"role\": \"%s\", \"ed_pk\": \"0x%s\", \"x_pk\": \"0x%s\"}}",
 		letter(cfg.role),
@@ -237,7 +312,7 @@ emit_keys :: proc(cfg: Config) {
 	)
 }
 
-play :: proc(cfg: Config, descriptor_path, run_dir: string) {
+play :: proc(cfg: Config, secrets: Secrets, descriptor_path, run_dir: string) {
 	d := load_descriptor(descriptor_path)
 	self, peer := letter(cfg.role), letter(other(cfg.role))
 	author, peer_author := author_of(cfg.role), author_of(other(cfg.role))
@@ -249,9 +324,9 @@ play :: proc(cfg: Config, descriptor_path, run_dir: string) {
 	anchored_ed_peer := claims.ed_pk_b if cfg.role == .A else claims.ed_pk_a
 	anchored_x_peer := claims.x_pk_b if cfg.role == .A else claims.x_pk_a
 
-	ed_self := ed_private(cfg.seed_ed)
+	ed_self := ed_private(secrets.ed)
 	ed_pk_self := ed_public(&ed_self)
-	x_pk_self := x_public(cfg.seed_x)
+	x_pk_self := x_public(secrets.x)
 
 	fmt.printfln("PLAYER %s", strings.to_upper(self))
 	fmt.printfln("battle:     0x%s", hex_str(battle_id[:]))
@@ -295,7 +370,7 @@ play :: proc(cfg: Config, descriptor_path, run_dir: string) {
 	fmt.printfln("peer:       %s authenticated, ed 0x%s", peer, hex_str(anchored_ed_peer[:]))
 
 	// --- session secret, from own secret and the peer's anchored key ---------
-	sess := derive_session(battle_id, cfg.seed_x, anchored_x_peer)
+	sess := derive_session(battle_id, secrets.x, anchored_x_peer)
 	fmt.printfln("session:    established, check 0x%s", hex_str(sess.check[:4]))
 
 	// --- representative exchange, strictly alternating -----------------------

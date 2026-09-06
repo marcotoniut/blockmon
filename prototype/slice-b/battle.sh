@@ -108,7 +108,9 @@ odin build "$DIR/probe" -out:"$REPO/build/probe" -o:none
 odin build "$DIR/player-a" -out:"$REPO/build/player-a" -o:none
 odin build "$DIR/player-b" -out:"$REPO/build/player-b" -o:none
 
-# The single-process probe is the determinism reference for the pair.
+# The single-process probe is the determinism reference for what the keys do not
+# touch: the transcript, the state commitment and the result. Key material is
+# generated per battle, so anything signed is deliberately not comparable.
 "$REPO/build/probe" >"$RUN/probe.json"
 
 # --- local chain ------------------------------------------------------------
@@ -146,7 +148,10 @@ EOF
 )"
 
 # --- each participant reports its own public battle material -----------------
-keys_json() { "$1" keys | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["ed_pk"], d["x_pk"])'; }
+# Each participant generates its own battle material on first use and keeps it
+# in its own file; only the public halves come back here to be anchored.
+mkdir -p "$RUN"
+keys_json() { "$1" keys "$RUN" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["ed_pk"], d["x_pk"])'; }
 read -r ED_PK_A X_PK_A <<<"$(keys_json "$REPO/build/player-a" || true)"
 read -r ED_PK_B X_PK_B <<<"$(keys_json "$REPO/build/player-b" || true)"
 for k in "$ED_PK_A" "$X_PK_A" "$ED_PK_B" "$X_PK_B"; do
@@ -266,8 +271,13 @@ for k in ("transcript_head", "state_commitment", "final_seq", "result"):
         die(f"two-process {k} differs from the single-process probe: {a[k]} vs {probe[k]}")
 if [o["op_hash"] for o in a["ops"]] != [o["op_hash"] for o in probe["ops"]]:
     die("two-process op hashes differ from the single-process probe")
-if a["ck_sig_self"] != probe["ck_sig_ed_a"] or b["ck_sig_self"] != probe["ck_sig_ed_b"]:
-    die("two-process checkpoint signatures differ from the single-process probe")
+# The signatures are the one thing that must NOT match the probe: the probe runs
+# on pinned seeds, while these two processes generated their own battle material
+# from system entropy. Equal signatures here would mean compiled-in keys.
+if a["ck_sig_self"] == probe["ck_sig_ed_a"] or b["ck_sig_self"] == probe["ck_sig_ed_b"]:
+    die("a participant signed with the probe's pinned key instead of its own")
+if a["peer_ed_pk"] == probe["ed_pk_b"] or b["peer_ed_pk"] == probe["ed_pk_a"]:
+    die("a participant authenticated the probe's pinned key instead of its peer's fresh one")
 
 print(f'FINAL_SEQ={a["final_seq"]}')
 print(f'RESULT={a["result"]}')
