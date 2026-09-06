@@ -492,7 +492,7 @@ def check_file(path):
     status = "FAIL" if failures else "OK"
     print(
         f"{status}  {tier} {path}: {total - failures}/{total} checks passed "
-        f"(independent derivation)"
+        f"(archived v0, independent derivation)"
     )
     return failures
 

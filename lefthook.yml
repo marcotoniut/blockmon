@@ -12,7 +12,7 @@ pre-commit:
       run: just gated lint
     rust:
       glob: "*.rs"
-      run: just g0c
+      run: just g0c && just tree-v1-rust
 
 # Check the full gate set, not just the files in the pushed commits.
 # A commit with --no-verify must not reach the remote unchecked.
@@ -23,9 +23,20 @@ pre-push:
       run: just gated lint
     kernel:
       run: just gated kernel-test
-    g0a:
-      run: just gated g0a && git diff --exit-code conformance/vectors/
+
+    canonical:
+      run: just gated canonical-test
+    g0a-archive:
+      run: just gated g0a-archive
     g0b:
       run: just gated g0b
+    tree-v1:
+      # The diff must follow regeneration: checked first, a drifted generator
+      # regenerates after the check and pushes stale committed vectors green.
+      run: just gated tree-v1 && git diff --exit-code conformance/vectors/
+    t1-v1:
+      run: just gated t1-v1
     g0c:
       run: just g0c
+    tree-v1-rust:
+      run: just tree-v1-rust

@@ -14,11 +14,18 @@ jobs:
       - uses: cachix/install-nix-action@v27
       - run: nix develop -c just lint
       - run: nix develop -c just kernel-test
-      - run: nix develop -c just g0a
-      # g0a regenerates both corpora and self-checks; the committed corpora must
-      # be byte-identical or the generator has drifted from the archive.
+      - run: nix develop -c just canonical-test
+      - run: nix develop -c just g0a-archive
+      # CI has the budget for deep commitment tracking; the local default keeps
+      # a run in seconds. 20000 steps per phase, not 500.
+      - run: nix develop -c just g0b 12166583181037 1000000 20000 20000
+      - run: nix develop -c just tree-v1
+      - run: nix develop -c just t1-v1
+      # v1 tree expansion is regenerated above and must be byte-identical,
+      # else the generator has drifted. v0 corpora are archived and verified
+      # against pinned digests, not reproduced, since the kernel now commits
+      # world/v1. The two hand-derived tiers are never regenerated.
       - run: git diff --exit-code conformance/vectors/
-      - run: nix develop -c just g0b
 
   # Separate toolchain path on purpose: the G0c crate pins its own Rust via
   # rust-toolchain.toml (rustup honors it), independent of the nix devshell.
@@ -31,3 +38,4 @@ jobs:
         with:
           tool: just
       - run: just g0c
+      - run: just tree-v1-rust

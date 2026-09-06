@@ -1,0 +1,314 @@
+// Transition 1 under world/v1. The kernel must reproduce the hand-derived tier
+// in conformance/vectors/g0a-t1-v1.json, whose roots were derived from
+// canonical-encoding.md §§2, 3, 6, 7 before the kernel moved off the flat root.
+//
+// A pass means the kernel reaches the right state and commits it correctly:
+// each scenario replays its own command, context and manifest, and the
+// transition commits its own output state.
+//
+// Three oracles must agree: the hand-derived tier, the full state
+// derivation, and the bounded update path over the touch contract's keys.
+package t1_v1_check
+
+import canonical "../../protocol/canonical"
+import kernel "../../protocol/kernel"
+
+import "core:encoding/hex"
+import "core:encoding/json"
+import "core:fmt"
+import "core:os"
+import "core:strconv"
+
+VECTORS :: "conformance/vectors/g0a-t1-v1.json"
+
+failures := 0
+passed := 0
+
+fail :: proc(name: string, detail: string) {
+	fmt.printfln("  FAIL %s: %s", name, detail)
+	failures += 1
+}
+
+expect :: proc(name: string, detail: string, ok: bool) {
+	if !ok {
+		fail(name, detail)
+	}
+}
+
+obj :: proc(v: json.Value) -> json.Object {
+	return v.(json.Object)
+}
+
+arr :: proc(v: json.Value) -> json.Array {
+	return v.(json.Array)
+}
+
+str :: proc(v: json.Value) -> string {
+	return v.(json.String)
+}
+
+// Corpus integers are decimal strings, so no float ever touches a u64.
+num :: proc(v: json.Value) -> u64 {
+	out, ok := strconv.parse_u64(str(v))
+	if !ok {
+		fmt.printfln("not a decimal integer: %s", str(v))
+		os.exit(1)
+	}
+	return out
+}
+
+unhex32 :: proc(s: string) -> [32]byte {
+	raw, ok := hex.decode(transmute([]byte)s[2:])
+	if !ok || len(raw) != 32 {
+		fmt.printfln("not a 32-byte hex value: %s", s)
+		os.exit(1)
+	}
+	out: [32]byte
+	copy(out[:], raw)
+	return out
+}
+
+world_from :: proc(state: json.Object) -> kernel.World {
+	w: kernel.World
+	for s in arr(state["subjects"]) {
+		append(&w.subjects, unhex32(str(s)))
+	}
+	for b in arr(state["blockmon"]) {
+		r := obj(b)
+		append(
+			&w.blockmon,
+			kernel.Blockmon_Record {
+				creature_id = unhex32(str(r["creature_id"])),
+				owner = unhex32(str(r["owner"])),
+				origin_permit = unhex32(str(r["origin_permit"])),
+			},
+		)
+	}
+	for p in arr(state["permits"]) {
+		r := obj(p)
+		append(
+			&w.permits,
+			kernel.Permit_Record {
+				permit_id = unhex32(str(r["permit_id"])),
+				subject = unhex32(str(r["subject"])),
+				encounter_class = u8(r["encounter_class"].(json.Integer)),
+				expiry_position = num(r["expiry_position"]),
+				status = u8(r["status"].(json.Integer)),
+			},
+		)
+	}
+	s := obj(state["supply"])
+	w.supply = kernel.Supply {
+		epoch    = num(s["epoch"]),
+		envelope = num(s["envelope"]),
+		minted   = num(s["minted"]),
+		consumed = num(s["consumed"]),
+		created  = num(s["created"]),
+	}
+	return w
+}
+
+free_world :: proc(w: ^kernel.World) {
+	delete(w.subjects)
+	delete(w.blockmon)
+	delete(w.permits)
+}
+
+tag_name :: proc(tag: canonical.Domain_Tag) -> string {
+	switch tag {
+	case .Subject:
+		return "subject"
+	case .Blockmon:
+		return "blockmon"
+	case .Encounter:
+		return "encounter"
+	case .Supply:
+		return "supply"
+	}
+	return "?"
+}
+
+// Tier's write format.
+key_label :: proc(tag: canonical.Domain_Tag, key: [32]byte) -> string {
+	k := key
+	return fmt.tprintf("%s:0x%s", tag_name(tag), string(hex.encode(k[:], context.temp_allocator)))
+}
+
+// Third oracle: the bounded path, from a full derivation of the pre-state to
+// the tier's own commitment. Only the shipped walk runs here, since a copy of
+// it in this checker would test itself.
+check_bounded_update :: proc(
+	name: string,
+	before: ^kernel.World,
+	after: ^kernel.World,
+	cmd: kernel.Command,
+	fx: kernel.Effects,
+	want_root: [32]byte,
+) {
+	tracked := kernel.track_world(before)
+	err := kernel.tracked_advance(&tracked, before, after, cmd, fx)
+	expect(name, fmt.tprintf("bounded update applies (%v)", err), err == .None)
+	expect(
+		name,
+		"bounded update reaches the tier commitment",
+		kernel.tracked_root(&tracked) == want_root,
+	)
+	check_store_serves_the_proofs(name, before, cmd, fx)
+}
+
+// Until the kernel reads from a store, this is what says one could: same roots,
+// same proofs, on the tier's own scenarios (register Q19).
+check_store_serves_the_proofs :: proc(
+	name: string,
+	before: ^kernel.World,
+	cmd: kernel.Command,
+	fx: kernel.Effects,
+) {
+	d := kernel.domain_entries(before)
+	defer kernel.free_domain_entries(&d)
+
+	store: canonical.Path_Store
+	canonical.store_init(&store)
+	defer canonical.store_destroy(&store)
+
+	for tag in ([]canonical.Domain_Tag{.Subject, .Blockmon, .Encounter, .Supply}) {
+		entries := kernel.domain_entries_for(&d, tag)
+		built := canonical.store_build(&store, tag, entries)
+		expect(
+			name,
+			fmt.tprintf("store root matches the derivation for %s", tag_name(tag)),
+			built == canonical.domain_root(tag, entries),
+		)
+	}
+
+	touched: [dynamic]kernel.Touched_Key
+	defer delete(touched)
+	kernel.t1_touched_keys(cmd, fx, &touched)
+	// Reads, not writes: this is the access the §2 bound is about.
+	for t in touched {
+		entries := kernel.domain_entries_for(&d, t.tag)
+		want: [canonical.TREE_DEPTH][32]byte
+		canonical.tree_siblings(t.tag, entries, t.key, &want)
+		got: [canonical.TREE_DEPTH][32]byte
+		reads_before := store.node_reads
+		_, present := canonical.store_read_path(&store, t.tag, t.key, &got)
+		_, want_present := kernel.entry_record(entries, t.key)
+		expect(name, fmt.tprintf("store presence for %s", key_label(t.tag, t.key)), present == want_present)
+		expect(
+			name,
+			fmt.tprintf("store proof for %s", key_label(t.tag, t.key)),
+			got == want,
+		)
+		expect(
+			name,
+			"a read path stays within the tree's depth",
+			store.node_reads - reads_before <= u64(canonical.TREE_DEPTH),
+		)
+	}
+}
+
+main :: proc() {
+	data, rerr := os.read_entire_file_from_path(VECTORS, context.allocator)
+	if rerr != nil {
+		fmt.printfln("cannot read %s", VECTORS)
+		os.exit(1)
+	}
+	root, jerr := json.parse(data, json.Specification.JSON, true)
+	if jerr != nil {
+		fmt.printfln("cannot parse %s", VECTORS)
+		os.exit(1)
+	}
+	doc := obj(root)
+	expect("tier", "commitment version", str(doc["commitment_version"]) == "blockmon/world/v1")
+
+	for raw in arr(doc["checks"]) {
+		c := obj(raw)
+		name := str(c["name"])
+		before := failures
+
+		input := world_from(obj(c["input_state"]))
+		defer free_world(&input)
+		recorded_output := world_from(obj(c["output_state"]))
+		defer free_world(&recorded_output)
+
+		cmd := obj(c["command"])
+		ctxv := obj(c["context"])
+		man := obj(c["manifest"])
+		command := kernel.Command {
+			subject   = unhex32(str(cmd["subject"])),
+			permit_id = unhex32(str(cmd["permit_id"])),
+		}
+		kctx := kernel.Context {
+			position      = num(ctxv["position"]),
+			epoch         = num(ctxv["epoch"]),
+			entropy_round = num(ctxv["entropy_round"]),
+			entropy_value = unhex32(str(ctxv["entropy_value"])),
+		}
+		manifest := kernel.Manifest {
+			round_period          = num(man["round_period"]),
+			entropy_safety_margin = num(man["entropy_safety_margin"]),
+			catch_rate_bp         = u32(num(man["catch_rate_bp"])),
+		}
+
+		produced, fx := kernel.transition(&input, command, kctx, &manifest)
+		defer free_world(&produced)
+
+		// The commitment the tier derived, on both sides.
+		in_want := unhex32(str(obj(c["input"])["world_root"]))
+		out_want := unhex32(str(obj(c["output"])["world_root"]))
+		expect(name, "input world_root", kernel.world_root(&input) == in_want)
+		expect(name, "recorded output world_root", kernel.world_root(&recorded_output) == out_want)
+
+		// The kernel's own output, committed by the kernel.
+		expect(name, "produced world_root", kernel.world_root(&produced) == out_want)
+
+		// Effects, so a wrong state cannot hide behind a right root.
+		want_fx := obj(c["effects"])
+		expect(name, "outcome", u64(fx.outcome) == u64(want_fx["outcome"].(json.Integer)))
+		if fx.outcome == kernel.OUTCOME_REJECTED {
+			expect(
+				name,
+				"reject reason",
+				u64(fx.reject_reason) == u64(want_fx["reject_reason"].(json.Integer)),
+			)
+			// Rejection purity, at the commitment: nothing recomputed, nothing moved.
+			expect(name, "rejection leaves the commitment unchanged", in_want == out_want)
+		} else {
+			expect(name, "roll", fx.roll == num(want_fx["roll"]))
+			if fx.outcome == kernel.OUTCOME_CREATED {
+				expect(name, "creature", fx.creature == unhex32(str(want_fx["creature"])))
+			}
+		}
+
+		// The touch contract of the amended protocol.md §2 bound, compared key
+		// by key against the tier rather than the tier against itself.
+		touched: [dynamic]kernel.Touched_Key
+		defer delete(touched)
+		kernel.t1_touched_keys(command, fx, &touched)
+		recorded := arr(c["writes"])
+		expect(name, "keys written", len(touched) == len(recorded))
+		if len(touched) == len(recorded) {
+			for t, i in touched {
+				expect(
+					name,
+					fmt.tprintf("write %d matches the tier", i),
+					key_label(t.tag, t.key) == str(recorded[i]),
+				)
+			}
+		}
+
+		// Third oracle: the bounded path must land on the tier's commitment.
+		check_bounded_update(name, &input, &produced, command, fx, out_want)
+
+		if failures == before {
+			passed += 1
+			fmt.printfln("  ok   %s", name)
+		}
+	}
+
+	total := len(arr(doc["checks"]))
+	fmt.printfln("T1 v1 constitutional gate: %d/%d scenarios reproduced", passed, total)
+	if failures > 0 || passed != total {
+		os.exit(1)
+	}
+}

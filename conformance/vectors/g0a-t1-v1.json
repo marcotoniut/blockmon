@@ -1,0 +1,335 @@
+{
+  "tier": "t1-v1-constitutional",
+  "commitment_version": "blockmon/world/v1",
+  "derivation": "hand-derived from canonical-encoding.md \u00a7\u00a72, 3, 6, 7 before the kernel moved to world/v1; the archived v0 flat roots are not carried over, and no value here comes from the kernel",
+  "scenario_source": "input_state and output_state are the three archived Transition 1 scenarios of g0a-vectors.json, which remains historical evidence for the superseded flat-root semantics",
+  "bound": {
+    "max_keys_read": 3,
+    "max_keys_written": 3,
+    "per_key_recomputation": 257,
+    "world_recomputation_when_state_changes": 1
+  },
+  "checks": [
+    {
+      "name": "t1-capture-success",
+      "outcome": 1,
+      "rejected": false,
+      "reads": [
+        "subject:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "writes": [
+        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supply:0x0000000000000000000000000000000000000000000000000000000000000000",
+        "blockmon:0x0773143bb4b3f066fd7d7b33b9338c37c07e0b5b3f630221d5c32733d5909ddc"
+      ],
+      "keys_read": 3,
+      "keys_written": 3,
+      "roots_unchanged": [
+        "subject_root"
+      ],
+      "command": {
+        "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "context": {
+        "position": "100",
+        "epoch": "7",
+        "entropy_round": "6",
+        "entropy_value": "0x0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "manifest": {
+        "round_period": "32",
+        "entropy_safety_margin": "2",
+        "catch_rate_bp": "2500"
+      },
+      "effects": {
+        "outcome": 1,
+        "reject_reason": null,
+        "roll": "2114",
+        "creature": "0x0773143bb4b3f066fd7d7b33b9338c37c07e0b5b3f630221d5c32733d5909ddc"
+      },
+      "input_state": {
+        "subjects": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "blockmon": [],
+        "permits": [
+          {
+            "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "encounter_class": 1,
+            "expiry_position": "1000",
+            "status": 1
+          }
+        ],
+        "supply": {
+          "epoch": "7",
+          "envelope": "100",
+          "minted": "10",
+          "consumed": "0",
+          "created": "0"
+        }
+      },
+      "output_state": {
+        "subjects": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "blockmon": [
+          {
+            "creature_id": "0x0773143bb4b3f066fd7d7b33b9338c37c07e0b5b3f630221d5c32733d5909ddc",
+            "owner": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "origin_permit": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "permits": [
+          {
+            "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "encounter_class": 1,
+            "expiry_position": "1000",
+            "status": 2
+          }
+        ],
+        "supply": {
+          "epoch": "7",
+          "envelope": "100",
+          "minted": "10",
+          "consumed": "1",
+          "created": "1"
+        }
+      },
+      "input": {
+        "subject_root": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7c",
+        "blockmon_root": "0xd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a0",
+        "encounter_root": "0x9527dd66c5bfc912ad62c3e72a5b55acb411dea52a92fe1ec9a5e1a4a5caeaf1",
+        "supply_root": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_commitment_bytes": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7cd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a09527dd66c5bfc912ad62c3e72a5b55acb411dea52a92fe1ec9a5e1a4a5caeaf1a0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_root": "0x4b3293ebeff7ec7bc51543edea7cd2eae9713e01a0883d057d9d87cb81273702",
+        "supply_commitment": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2"
+      },
+      "output": {
+        "subject_root": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7c",
+        "blockmon_root": "0xd33d5495a400fa5a6f408d985d188b0e60a201d7c06f2a200b1489b60125d3ff",
+        "encounter_root": "0xdc8450e578dddf053adf51cf088d096eba71e83b8f5b27763119827740ca6484",
+        "supply_root": "0x94b5258930a1a81a85143ec883e7f5276f6418ebed29e2ae521e27965a260021",
+        "world_commitment_bytes": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7cd33d5495a400fa5a6f408d985d188b0e60a201d7c06f2a200b1489b60125d3ffdc8450e578dddf053adf51cf088d096eba71e83b8f5b27763119827740ca648494b5258930a1a81a85143ec883e7f5276f6418ebed29e2ae521e27965a260021",
+        "world_root": "0xcf8ff31d68fdfc553534283ef4a52917f2c8f7575f1b6d2d0a4bc55374639851",
+        "supply_commitment": "0x94b5258930a1a81a85143ec883e7f5276f6418ebed29e2ae521e27965a260021"
+      }
+    },
+    {
+      "name": "t1-capture-roll-failed",
+      "outcome": 2,
+      "rejected": false,
+      "reads": [
+        "subject:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "writes": [
+        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "keys_read": 3,
+      "keys_written": 2,
+      "roots_unchanged": [
+        "blockmon_root",
+        "subject_root"
+      ],
+      "command": {
+        "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "context": {
+        "position": "100",
+        "epoch": "7",
+        "entropy_round": "6",
+        "entropy_value": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "manifest": {
+        "round_period": "32",
+        "entropy_safety_margin": "2",
+        "catch_rate_bp": "2500"
+      },
+      "effects": {
+        "outcome": 2,
+        "reject_reason": null,
+        "roll": "3628",
+        "creature": null
+      },
+      "input_state": {
+        "subjects": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "blockmon": [],
+        "permits": [
+          {
+            "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "encounter_class": 1,
+            "expiry_position": "1000",
+            "status": 1
+          }
+        ],
+        "supply": {
+          "epoch": "7",
+          "envelope": "100",
+          "minted": "10",
+          "consumed": "0",
+          "created": "0"
+        }
+      },
+      "output_state": {
+        "subjects": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "blockmon": [],
+        "permits": [
+          {
+            "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "encounter_class": 1,
+            "expiry_position": "1000",
+            "status": 2
+          }
+        ],
+        "supply": {
+          "epoch": "7",
+          "envelope": "100",
+          "minted": "10",
+          "consumed": "1",
+          "created": "0"
+        }
+      },
+      "input": {
+        "subject_root": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7c",
+        "blockmon_root": "0xd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a0",
+        "encounter_root": "0x9527dd66c5bfc912ad62c3e72a5b55acb411dea52a92fe1ec9a5e1a4a5caeaf1",
+        "supply_root": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_commitment_bytes": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7cd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a09527dd66c5bfc912ad62c3e72a5b55acb411dea52a92fe1ec9a5e1a4a5caeaf1a0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_root": "0x4b3293ebeff7ec7bc51543edea7cd2eae9713e01a0883d057d9d87cb81273702",
+        "supply_commitment": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2"
+      },
+      "output": {
+        "subject_root": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7c",
+        "blockmon_root": "0xd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a0",
+        "encounter_root": "0xdc8450e578dddf053adf51cf088d096eba71e83b8f5b27763119827740ca6484",
+        "supply_root": "0x0d4a126ce88502ffecfbc6936fe393c5d99ae67a309935fe961ed4281a851aa9",
+        "world_commitment_bytes": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7cd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a0dc8450e578dddf053adf51cf088d096eba71e83b8f5b27763119827740ca64840d4a126ce88502ffecfbc6936fe393c5d99ae67a309935fe961ed4281a851aa9",
+        "world_root": "0x56a0394359683f91d999429d6a2e2c246d366d33cb26fbaf0d37d25cdabcdc81",
+        "supply_commitment": "0x0d4a126ce88502ffecfbc6936fe393c5d99ae67a309935fe961ed4281a851aa9"
+      }
+    },
+    {
+      "name": "t1-rejected-expired",
+      "outcome": 3,
+      "rejected": true,
+      "reads": [
+        "subject:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "writes": [],
+      "keys_read": 3,
+      "keys_written": 0,
+      "roots_unchanged": [
+        "blockmon_root",
+        "encounter_root",
+        "subject_root",
+        "supply_root",
+        "world_root"
+      ],
+      "command": {
+        "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "context": {
+        "position": "100",
+        "epoch": "7",
+        "entropy_round": "6",
+        "entropy_value": "0x0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "manifest": {
+        "round_period": "32",
+        "entropy_safety_margin": "2",
+        "catch_rate_bp": "2500"
+      },
+      "effects": {
+        "outcome": 3,
+        "reject_reason": 5,
+        "roll": null,
+        "creature": null
+      },
+      "input_state": {
+        "subjects": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "blockmon": [],
+        "permits": [
+          {
+            "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "encounter_class": 1,
+            "expiry_position": "100",
+            "status": 1
+          }
+        ],
+        "supply": {
+          "epoch": "7",
+          "envelope": "100",
+          "minted": "10",
+          "consumed": "0",
+          "created": "0"
+        }
+      },
+      "output_state": {
+        "subjects": [
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ],
+        "blockmon": [],
+        "permits": [
+          {
+            "permit_id": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "subject": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "encounter_class": 1,
+            "expiry_position": "100",
+            "status": 1
+          }
+        ],
+        "supply": {
+          "epoch": "7",
+          "envelope": "100",
+          "minted": "10",
+          "consumed": "0",
+          "created": "0"
+        }
+      },
+      "input": {
+        "subject_root": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7c",
+        "blockmon_root": "0xd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a0",
+        "encounter_root": "0x3521e0c3833483ba96ef82e2092a306553baacb2691b3585ce4aa082b289e02b",
+        "supply_root": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_commitment_bytes": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7cd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a03521e0c3833483ba96ef82e2092a306553baacb2691b3585ce4aa082b289e02ba0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_root": "0x5f4439a6eb2c219f34e3454885c43d71c8e4e1da691e2687124332bbd84da199",
+        "supply_commitment": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2"
+      },
+      "output": {
+        "subject_root": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7c",
+        "blockmon_root": "0xd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a0",
+        "encounter_root": "0x3521e0c3833483ba96ef82e2092a306553baacb2691b3585ce4aa082b289e02b",
+        "supply_root": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_commitment_bytes": "0x6faf3560ff03f7f7b5d124a2de595abb697ff44fe868c58121b727b0369a2d7cd8816ddc24a659c0fbdb7e85cd06fa9d91e03561444458f7c626d14775bbd0a03521e0c3833483ba96ef82e2092a306553baacb2691b3585ce4aa082b289e02ba0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2",
+        "world_root": "0x5f4439a6eb2c219f34e3454885c43d71c8e4e1da691e2687124332bbd84da199",
+        "supply_commitment": "0xa0dbb944cd581c42fd4677ceb9593a81d42cb27d91377dabcde992775d629df2"
+      }
+    }
+  ]
+}

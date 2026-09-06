@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# G0a cross-target conformance: emit the golden-vector corpus on each target
-# and compare artefacts byte-for-byte against the native run.
+# Cross-target conformance for the current corpus: emit the v1 tree expansion
+# tier on each target and compare byte-for-byte against the native run and the
+# committed vectors. The archived v0 corpora are digest-verified evidence
+# (just g0a-archive), never regenerated: their generator's world_root is now
+# the v1 commitment, so a fresh run of it proves nothing about the archive.
 # Hard-coded to the current toolchain pin (odin dev-2026-07); not a framework.
 set -euo pipefail
 
@@ -13,9 +16,8 @@ ODIN_REL=https://github.com/odin-lang/Odin/releases/download/dev-2026-07
 
 # ---- native (darwin_arm64) ---------------------------------------------------
 mkdir -p "$REPO/build"
-odin build "$REPO/conformance/gen" -out:"$REPO/build/g0a-gen" -o:none
-"$REPO/build/g0a-gen" > "$OUT/darwin_arm64.json"
-"$REPO/build/g0a-gen" expansion > "$OUT/darwin_arm64-expansion.json"
+odin build "$REPO/conformance/gen-tree" -out:"$REPO/build/xt-gen-tree" -o:none
+"$REPO/build/xt-gen-tree" > "$OUT/darwin_arm64.json"
 
 linux_run() { # 1=docker platform, 2=odin release arch, 3=output name
   # Both corpora travel back as a tar stream on stdout; a host-path volume
@@ -27,10 +29,9 @@ linux_run() { # 1=docker platform, 2=odin release arch, 3=output name
     curl -fsSL --retry 5 --retry-all-errors $ODIN_REL/odin-linux-$2-dev-2026-07.tar.gz -o /tmp/odin.tgz >&2
     tar xzf /tmp/odin.tgz -C /opt >&2
     ODIN=\$(find /opt -maxdepth 2 -name odin -type f | head -1)
-    \"\$ODIN\" build /w/conformance/gen -out:/tmp/gen -o:none >&2
+    \"\$ODIN\" build /w/conformance/gen-tree -out:/tmp/gen -o:none >&2
     mkdir /tmp/out
     /tmp/gen > /tmp/out/$3.json
-    /tmp/gen expansion > /tmp/out/$3-expansion.json
     tar cf - -C /tmp/out .
   " | tar xf - -C "$OUT"
 }
@@ -50,35 +51,41 @@ docker run --rm --platform linux/arm64 -v "$REPO":/w:ro debian:bookworm bash -c 
   curl -fsSL --retry 5 --retry-all-errors $ODIN_REL/odin-linux-arm64-dev-2026-07.tar.gz -o /tmp/odin.tgz >&2
   tar xzf /tmp/odin.tgz -C /opt >&2
   ODIN=\$(find /opt -maxdepth 2 -name odin -type f | head -1)
-  \"\$ODIN\" build /w/conformance/gen -out:/tmp/gen-rv64 -o:none -target:linux_riscv64 \
+  \"\$ODIN\" build /w/conformance/gen-tree -out:/tmp/gen-rv64 -o:none -target:linux_riscv64 \
     -extra-linker-flags:'--target=riscv64-linux-gnu --gcc-toolchain=/usr -fuse-ld=bfd' >&2
   mkdir /tmp/out
   qemu-riscv64-static -L /usr/riscv64-linux-gnu /tmp/gen-rv64 > /tmp/out/linux_riscv64.json
-  qemu-riscv64-static -L /usr/riscv64-linux-gnu /tmp/gen-rv64 expansion > /tmp/out/linux_riscv64-expansion.json
   tar cf - -C /tmp/out .
-" | tar xf - -C "$OUT" || { echo "riscv64 leg failed" >&2; rm -f "$OUT/linux_riscv64.json" "$OUT/linux_riscv64-expansion.json"; }
+" | tar xf - -C "$OUT" || { echo "riscv64 leg failed" >&2; rm -f "$OUT/linux_riscv64.json"; }
 
 # ---- compare -------------------------------------------------------------------
-# Every target G0a names must be present and byte-identical, for both corpora;
-# a leg that failed to produce output is a failed run, not a smaller green one.
+# Every target must be present and byte-identical, and identical to the
+# committed corpus: agreement between targets alone would also bless a
+# generator that drifted everywhere at once. A leg that produced no output is
+# a failed run, not a smaller green one.
 echo
 status=0
 for f in "$OUT"/*.json; do
   shasum -a 256 "$f"
 done
+COMMITTED="$REPO/conformance/vectors/g0a-tree-v1-expansion.json"
+if cmp -s "$COMMITTED" "$OUT/darwin_arm64.json"; then
+  echo "IDENTICAL  darwin_arm64.json == committed g0a-tree-v1-expansion.json"
+else
+  echo "MISMATCH   darwin_arm64.json vs committed vectors"
+  status=1
+fi
 for t in linux_arm64 linux_amd64 linux_riscv64; do
-  for suffix in "" "-expansion"; do
-    f="$OUT/$t$suffix.json"
-    if [ ! -s "$f" ]; then
-      echo "MISSING    $t$suffix.json (leg produced no output)"
-      status=1
-    elif cmp -s "$OUT/darwin_arm64$suffix.json" "$f"; then
-      echo "IDENTICAL  $t$suffix.json == darwin_arm64$suffix.json"
-    else
-      echo "MISMATCH   $t$suffix.json"
-      status=1
-    fi
-  done
+  f="$OUT/$t.json"
+  if [ ! -s "$f" ]; then
+    echo "MISSING    $t.json (leg produced no output)"
+    status=1
+  elif cmp -s "$OUT/darwin_arm64.json" "$f"; then
+    echo "IDENTICAL  $t.json == darwin_arm64.json"
+  else
+    echo "MISMATCH   $t.json"
+    status=1
+  fi
 done
 [ "$status" -eq 0 ] || echo "INCOMPLETE: not tri-target evidence" >&2
 exit $status
