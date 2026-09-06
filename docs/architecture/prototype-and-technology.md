@@ -186,10 +186,13 @@ gate failure → candidate rejected or redesigned
 all required gates passed → ADR-eligible
 2+ eligible → comparative ADR: security assumptions, maturity, operational burden,
               external dependencies, cost curves, verification sovereignty,
-              escape/continuity guarantees, engineering ownership, migration risk
+              participant-verifiable settled state, escape/continuity guarantees,
+              engineering ownership, migration risk
 ```
 
 There is no ranking and no first-past-the-post. A failure-routing table may order **effort** (e.g. if Cartesi fails only DA economics, try alternate DA for the same machine before evaluating D2), and orders nothing else. The candidates' settlement layers are additionally evaluated against the succession and snapshot-pointer requirements (`verification.md` §8), which entered after the original candidate write-ups.
+
+Participant-verifiable settled state asks whether a participant can independently obtain and verify the bounded canonical settlement state it relies on, via a practical direct read path, without trusting the game operator or a proprietary indexer (`architecture.md` §21: signing is delegable, reading is not). Record it at one of three levels, never as a yes: protocol possibility, a practical bounded client path, or operator and indexer dependency. Data being theoretically on chain is not the same as a lightweight participant querying the exact checkpoint, result and proof data it needs. Slice B shows the middle level is reachable on an EVM settlement layer: participants read the binding and settled outcome themselves over three pinned selectors, and the harness-written descriptor carries only bootstrap identifiers and endpoints anchored on chain anyway.
 
 ## 6. Candidate Notes (role view, no ranking)
 
