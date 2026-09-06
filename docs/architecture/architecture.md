@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| **Status** | **v0.3 Frozen**, subject to falsification by the prototype gates (`prototype-and-technology.md`) |
-| **Last reviewed** | 2026-08-11 |
-| **Owns** | Durable cross-layer invariants, trust model, attack-ownership index, open-questions register |
-| **Does not own** | Protocol semantics (`protocol.md`), physical/economic trust (`trust-and-economy.md`), verification and recovery mechanics (`verification.md`), gates and technology evaluation (`prototype-and-technology.md`) |
+| **Status** | **v0.4 Frozen**, subject to falsification by the prototype gates (`prototype-and-technology.md`); battle-channel amendment 2026-09-01; §21 delegation-asymmetry addition 2026-09-01 |
+| **Last reviewed** | 2026-09-01 |
+| **Owns** | Durable cross-layer invariants, cryptographic layer separation, trust model, attack-ownership index, open-questions register |
+| **Does not own** | Protocol semantics (`protocol.md`), battle-channel mechanics (`battle-channel.md`), physical/economic trust (`trust-and-economy.md`), verification and recovery mechanics (`verification.md`), gates and technology evaluation (`prototype-and-technology.md`) |
 
 This document defines what Blockmon **is**, independent of blockchain, proof system, programming language, or infrastructure. Architecture exploration is closed; changes to this document require a demonstrated contradiction, security failure, economic failure, or infeasible requirement.
 
@@ -42,6 +42,7 @@ Non-goals: on-chain gameplay execution; one chain transaction or NFT per creatur
 | **Client** | AR, rendering, input, local prediction; untrusted |
 | **Constitutional kernel** | Value creation, ownership, supply, escrow, value-relevant randomness (§4) |
 | **Deterministic simulation layer** | Battles and game logic feeding the kernel bounded deltas (§4) |
+| **Battle channels** | Bilateral off-chain venue for battles; dual-signed results enter the kernel as envelope-checked deltas (`battle-channel.md`) |
 | **Discovery** | Converts physical presence into consumable authorisations (`trust-and-economy.md`) |
 | **Sequencing** | Canonical order of inputs; receipts (`protocol.md` §§3-4) |
 | **Data availability** | Canonical inputs publicly retrievable for the challenge horizon (§10) |
@@ -56,10 +57,10 @@ Membership rule:
 > If dishonest computation or dishonest randomness can **create** new transferable economic value, that computation belongs in the constitutional kernel, or must be constrained by a constitutionally verified capability. Computation whose dishonesty can only **redistribute** an already constitutionally bounded amount may remain in the deterministic simulation layer, subject to replay and challenge.
 
 - **Kernel**: capability/permit consumption, entropy binding and value-relevant rolls (capture creation, breeding-derived creation, lottery allocation), creation/transfer/supply arithmetic, escrow, envelope enforcement, per-transition step budget.
-- **Simulation layer**: battles, per-turn logic, encounter behaviour, progression computation. Deterministic, canonically transcribed, replayable and challengeable. Its outputs enter the kernel only as **envelope-checked deltas**.
+- **Simulation layer**: battles, per-turn logic, encounter behaviour, progression computation. Deterministic. Verified through one of two venues: canonical transcription with replay and challenge, or, for channelised battles, bilateral dual signature with the transcript held by the participants as dispute evidence (`battle-channel.md`). Either way its outputs enter the kernel only as **envelope-checked deltas**.
 - **Envelopes are blast-radius bounds, not correctness proofs.** They carry per-event and per-subject-per-period (rate/aggregate) dimensions; a stream of individually legal maxima is itself bounded.
 
-Guarantee ladder: kernel validity → simulation replay/fraud verification → economic envelopes → product/fairness policy. The kernel never claims to guarantee simulation correctness merely because outputs stayed inside bounds.
+Guarantee ladder: kernel validity → simulation replay/fraud verification (canonical path) or bilateral consent with dispute fallback (channels) → economic envelopes → product/fairness policy. The kernel never claims to guarantee simulation correctness merely because outputs stayed inside bounds.
 
 ## 5. Canonical State and Transitions (shape)
 
@@ -84,6 +85,8 @@ Total issuance follows a **constitutional scheduled envelope**, changeable only 
 > Every economically consequential command (equivalently: every kernel-transition input) must occupy a canonical sequencing position strictly before the reveal position of any entropy influencing its outcome, mechanically checkable from the canonical order. Entropy is assigned by rule, never chosen. Failure to act resolves to a ruleset-defined default without fresh entropy; retry requires fresh scarce authorisation.
 
 Consequence for game design, binding: **economically consequential actions are discrete, pause-tolerant events** with seconds-class resolution latency. Assignment and reveal-availability semantics: `protocol.md` §5.
+
+The invariant governs kernel-transition inputs. A dual-signed channel result satisfies it by construction: no entropy influences the settlement command's outcome once both signatures exist. Randomness internal to a battle channel is a bilateral fairness concern with blast radius bounded by the participants' escrowed stakes (`battle-channel.md` §7, register Q15).
 
 ## 10. Data Availability and Recovery Are Different Things
 
@@ -166,6 +169,7 @@ Honest Stage A claim: **inputs, ownership, scarcity bounds and escape are trustl
 | **Entropy** | threshold non-collusion (unpredictability); liveness | value correct for round, unbiased | that no insider pre-knew it | **silent** (collusion), visible (halt) |
 | **Sequencing** | committer liveness/honesty pre-succession | canonical order existed | order was extraction-free beyond registered policies | receipts, equivocation proofs |
 | **Execution** | none once verified; operator honesty at Stage A | state follows from inputs under manifests | inputs honestly gathered | stage-dependent |
+| **Battle channel** | counterparty cooperation for fast close; deadlines otherwise | result mutually authorised; supersession order | hidden-state legality without reveal/dispute | timeout and dispute record |
 | **DA** | availability within window | data published | anything about withheld data | protocol-visible |
 | **Verification** | stage/mode-dependent | claimed roots valid | anything about withheld data | challenge record |
 | **Settlement** | settlement chain security | issuance bounds, exit, checkpoints, succession | correctness it did not verify | chain-visible |
@@ -191,6 +195,24 @@ Worst-case insider composite (Discovery Authority + sequencer + entropy threshol
 | Key recovery abuse | §12 constraints | §12 |
 | Sponsored-fee exhaustion | bounded authorisations, rate limits, sponsor budgets | `trust-and-economy.md` §10 |
 | Privacy/linkage | §16 | `trust-and-economy.md` §9 |
+| Channel stale checkpoint; duplicate settlement | supersession; per-battle-id non-duplication | `battle-channel.md` §§4-5, 8 |
+| Channel hidden-state cheating; counterparty abort | commitments + dispute; deadlines, no malice inference | `battle-channel.md` §§4, 6, 8 |
+
+## 21. Cryptographic Layer Separation
+
+Blockmon has three cryptographic layers. They are distinct concerns and MUST NOT be conflated:
+
+| Layer | Contents | Selected by |
+|---|---|---|
+| **Protocol cryptography** | canonical encoding, protocol hashing and domain separation, state/transcript commitments, consensus-critical entropy derivation | ProtocolManifest; pinned provisionally where Gate 0 requires, replaceable via migration (`protocol.md` §§1, 11) |
+| **Battle-channel cryptography** | per-player ephemeral battle keys, battle session secret, operation/checkpoint signatures, hidden-information encryption and commitments, potential future fraud/ZK proofs | `battle-channel.md`; independent of the other layers |
+| **Settlement-interface cryptography** | wallet signatures, chain transaction signing, chain-mandated hash/signature schemes (e.g. secp256k1/Keccak-256 on EVM) | the settlement chain; confined to the chain adapter and settlement boundary |
+
+> **The settlement chain determines settlement-interface cryptography. Battle-channel and deterministic protocol cryptography remain independently selectable unless the protocol explicitly binds them.**
+
+Settlement-interface primitives MUST NOT leak into the deterministic kernel: the kernel neither produces nor verifies chain-native signatures, and a kernel language lacking a chain's primitives is not a kernel blocker (`prototype-and-technology.md` §2.2). Coupling any two layers requires a recorded protocol reason, never convenience.
+
+Delegation across this boundary is asymmetric, REQUIRED. **Signing** may be delegated to a wallet, external signer or provider: a signature is verifiable by whoever receives it, and a delegate that refuses or forges is detected. **Reading settled state may not be delegated**: a party that accepts someone else's report of the recorded outcome has substituted trust for verification, and detects nothing. Reading the settlement venue is therefore a participant capability, not an operator service, and being unable to read it is a missing capability rather than a delegated one.
 
 ---
 
@@ -214,3 +236,7 @@ Product/protocol questions intentionally unresolved. No other document may resta
 | Q12 | Aggregate state-growth envelope (beyond per-transition step budget) | protocol | Gate measurement |
 | Q13 | Entropy-source successor procedure detail on permanent beacon failure | protocol/governance | rare-event runbook |
 | Q14 | Dual-beacon mixing as hardening against threshold collusion | protocol | optional hardening |
+| Q15 | Channel-internal entropy fairness mechanism (mutual commit-reveal vs anchored seed) | battle-channel | game design; not slice-blocking |
+| Q16 | Channel dispute engine depth (transition proofs, zkVM adjudication) | battle-channel/verification | later verification upgrades |
+| Q17 | ZK proof system and zk-friendly hash selection | protocol/verification | nothing until validity mode |
+| Q18 | Channel checkpoint cadence and transcript compression policy | battle-channel | product tuning |
