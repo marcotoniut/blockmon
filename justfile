@@ -12,7 +12,7 @@ default:
 # Static gates for every language in the tree.
 # Rust is excluded: its crates pin their own toolchains,
 # so `just g0c` and `just tree-v1-rust` own fmt and clippy.
-lint: lint-odin lint-python lint-shell lint-sol
+lint: lint-odin lint-python lint-shell lint-sol lint-actions lint-docs
 
 # Type-checks packages with no main procedure, unreachable by the build
 lint-odin:
@@ -24,14 +24,24 @@ lint-odin:
 	done
 
 lint-python:
-	git ls-files '*.py' | xargs ruff check
-	git ls-files '*.py' | xargs ruff format --check
+	git ls-files '*.py' | xargs uv run --frozen ruff check
+	git ls-files '*.py' | xargs uv run --frozen ruff format --check
+	git ls-files '*.py' | xargs uv run --frozen ty check
+	git ls-files '*.py' | xargs uv run --frozen vulture
 
 lint-shell:
 	git ls-files '*.sh' | xargs shellcheck
 
 lint-sol:
-	cd prototype/slice-b/contracts && forge fmt --check
+	cd prototype/slice-b/contracts && forge fmt --check && forge lint
+
+# GitHub Actions workflows
+lint-actions:
+	actionlint
+
+# Spec cross-references and the registry of versioned labels
+lint-docs:
+	python3 scripts/lint_docs.py
 
 # Install lefthook.yml git hooks into this clone. The rc pins LEFTHOOK_BIN to
 # the store path so the hook never resolves lefthook from PATH; the profile

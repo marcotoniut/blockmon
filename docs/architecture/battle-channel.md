@@ -64,6 +64,8 @@ Transport keys MAY be discarded at close. Keys protecting **committed hidden sta
 
 Provisional instantiation (implementation note, not architecture): X25519 + HKDF for the exchange and derivation, Ed25519 for channel signatures, an AEAD for encryption. All are settlement-independent; none requires chain-native primitives.
 
+Slice labels are provisional, like the primitives. HKDF derives `K_battle` under `blockmon/battle/v0` and purpose keys under `blockmon/battle/transport/v0`, `blockmon/battle/hidden-state/v0` and `blockmon/battle/session-check/v0`. The hello signature is tagged `blockmon/battle/hello/v0`. These are channel-layer labels, not `canonical-encoding.md` §3 domains. The settlement contract's wallet signatures use Keccak-256 tags: `blockmon/battle-key-auth/v0` for key anchoring and `blockmon/battle-checkpoint/v1` for checkpoints, binding both anchored Ed25519 keys.
+
 Scope note, REQUIRED reading for anyone extending this: a single shared session secret is a session-secret demonstration, not the hidden-information protocol. Battle mechanics may require per-player encryption layers, commitments, verifiable shuffles, or selective revelation (mental-poker-class constructions). That protocol is deliberately unresolved (registers Q15, Q17, Q18); a successful Slice B proves secret establishment and the settlement boundary, nothing more.
 
 ## 4. Channel Operation Semantics

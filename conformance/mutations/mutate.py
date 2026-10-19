@@ -223,9 +223,8 @@ MUTATIONS = [
         "settle-shared-key",
         "a participant may anchor the counterparty's key",
         CONTRACT,
-        "        require(!peer.registered || (peer.edPk != edPk && peer.xPk != xPk), "
-        '"key anchored by the counterparty");\n',
-        "",
+        "require(!peer.registered || (peer.edPk != edPk && peer.xPk != xPk), ",
+        "require(!peer.registered || peer.registered, ",
         ("slice-b-test",),
     ),
     Mutation(
@@ -233,7 +232,7 @@ MUTATIONS = [
         "the checkpoint digest omits the anchored channel keys",
         CONTRACT,
         "                    edPkA,\n                    edPkB,\n",
-        "                    bytes32(0),\n                    bytes32(0),\n",
+        "                    edPkA ^ edPkA,\n                    edPkB ^ edPkB,\n",
         ("slice-b-test",),
     ),
 ]

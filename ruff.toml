@@ -1,6 +1,6 @@
 # conformance/check.py is an independent G0a checker
 # using stdlib only, so no rule may suggest third-party deps.
-target-version = "py313"
+target-version = "py312"
 line-length = 100
 
 [lint]

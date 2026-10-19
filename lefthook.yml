@@ -8,7 +8,7 @@ pre-commit:
   skip: [merge, rebase]
   commands:
     lint:
-      glob: "*.{odin,py,sh,sol}"
+      glob: "*.{odin,py,sh,sol,md,yml,toml,lock}"
       run: just gated lint
     rust:
       glob: "*.rs"

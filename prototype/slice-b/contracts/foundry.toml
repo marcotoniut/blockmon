@@ -5,6 +5,14 @@ out = "out"
 libs = []
 solc_version = "0.8.24"
 optimizer = false
+# A compiler warning fails the build, so unused locals and shadowed names
+# are caught.
+deny = "warnings"
+
+# block-timestamp flags the timeout model: deadlines and response
+# windows are wall-clock by design (battle-channel.md §6).
+[lint]
+exclude_lints = ["block-timestamp"]
 
 [fmt]
 # 120 is pinned, not inherited: Solidity style guide width. If the

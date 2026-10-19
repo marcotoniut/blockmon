@@ -14,11 +14,15 @@
     {
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
+          # uv reuses the flake's interpreter instead of downloading one, so a single Python handles both scripts and dev tools.
+          UV_PYTHON = "${pkgs.python312}/bin/python3.12";
+          UV_PYTHON_DOWNLOADS = "never";
           packages = with pkgs; [
             odin # kernel, conformance, probe; dev-2026-07a at the locked revision
             foundry # forge/anvil/cast; gate-revalidated against the locked version
-            python3 # conformance/check.py (stdlib only)
-            ruff # check.py lint and format gate
+            python312 # stdlib-only scripts; the interpreter uv runs on
+            uv # Python dev tools, pinned by uv.lock
+            actionlint
             shellcheck # cross-target.sh and the slice-b harness scripts
             lefthook # git hooks; `just hooks` installs them
             just

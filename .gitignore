@@ -42,3 +42,6 @@ lefthook-local.yml
 
 # Local investigation notes, not repo history
 /tmp/
+
+# uv environment for the Python dev tools
+.venv/
