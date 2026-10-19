@@ -37,7 +37,7 @@ CONTRACT=$(forge create src/BattleSettlement.sol:BattleSettlement \
 pass "deployed BattleSettlement at $CONTRACT"
 
 AUTH_TAG=$(cast keccak "blockmon/battle-key-auth/v0")
-CK_TAG=$(cast keccak "blockmon/battle-checkpoint/v0")
+CK_TAG=$(cast keccak "blockmon/battle-checkpoint/v1")
 
 # --- probe: channel material and deterministic local result ------------------
 mkdir -p "$REPO/build" "$DIR/fixtures"
@@ -69,8 +69,8 @@ auth_sig() { # 1=wallet pk, 2=battle id, 3=ed pk, 4=x pk
 
 ck_sig() { # 1=wallet pk, 2=battle id, 3=seq, 4=commitment, 5=result
   local inner
-  inner=$(cast keccak "$(cast abi-encode 'x(bytes32,uint256,address,bytes32,bytes32,uint64,bytes32,uint8)' \
-    "$CK_TAG" $CHAIN_ID "$CONTRACT" "$2" "$RULESET_HASH" "$3" "$4" "$5")")
+  inner=$(cast keccak "$(cast abi-encode 'x(bytes32,uint256,address,bytes32,bytes32,bytes32,bytes32,uint64,bytes32,uint8)' \
+    "$CK_TAG" $CHAIN_ID "$CONTRACT" "$2" "$RULESET_HASH" "$ED_PK_A" "$ED_PK_B" "$3" "$4" "$5")")
   cast wallet sign --private-key "$1" "$inner"
 }
 

@@ -136,7 +136,7 @@ CONTRACT=$(forge create src/BattleSettlement.sol:BattleSettlement \
 pass "deployed BattleSettlement at $CONTRACT"
 
 AUTH_TAG=$(cast keccak "blockmon/battle-key-auth/v0")
-CK_TAG=$(cast keccak "blockmon/battle-checkpoint/v0")
+CK_TAG=$(cast keccak "blockmon/battle-checkpoint/v1")
 
 # --- battle identity, shared with the single-process probe -------------------
 eval "$(python3 - "$RUN/probe.json" <<'EOF'
@@ -171,10 +171,10 @@ auth_sig() { # 1=wallet pk, 2=ed pk, 3=x pk
   cast wallet sign --private-key "$1" "$inner"
 }
 
-ck_sig() { # 1=wallet pk, 2=seq, 3=commitment, 4=result
+ck_sig() { # 1=wallet pk, 2=ed pk a, 3=ed pk b, 4=seq, 5=commitment, 6=result
   local inner
-  inner=$(cast keccak "$(cast abi-encode 'x(bytes32,uint256,address,bytes32,bytes32,uint64,bytes32,uint8)' \
-    "$CK_TAG" $CHAIN_ID "$CONTRACT" "$BATTLE_ID" "$RULESET_HASH" "$2" "$3" "$4")")
+  inner=$(cast keccak "$(cast abi-encode 'x(bytes32,uint256,address,bytes32,bytes32,bytes32,bytes32,uint64,bytes32,uint8)' \
+    "$CK_TAG" $CHAIN_ID "$CONTRACT" "$BATTLE_ID" "$RULESET_HASH" "$2" "$3" "$4" "$5" "$6")")
   cast wallet sign --private-key "$1" "$inner"
 }
 
@@ -328,6 +328,8 @@ print(f'FINAL_SEQ={a["final_seq"]}')
 print(f'RESULT={a["result"]}')
 print(f'STATE_COMMITMENT={a["state_commitment"]}')
 print(f'HEAD={a["transcript_head"]}')
+print(f'PEER_OF_A={a["peer_ed_pk"]}')
+print(f'PEER_OF_B={b["peer_ed_pk"]}')
 EOF
 )"
 pass "convergence: same session witness, transcript head $HEAD, checkpoint and dual signatures"
@@ -345,8 +347,8 @@ kinds=$(sed -n 's/^[<>] \([0-9a-f][0-9a-f]\).*/\1/p' "$RUN/wire-a.log" | tr '\n'
 pass "transport: 4 frame kinds, hello/op/checkpoint-signature/done, logged in full both sides"
 
 # --- settlement, from the agreed checkpoint only ----------------------------
-SIG_A=$(ck_sig $PK_WA "$FINAL_SEQ" "$STATE_COMMITMENT" "$RESULT")
-SIG_B=$(ck_sig $PK_WB "$FINAL_SEQ" "$STATE_COMMITMENT" "$RESULT")
+SIG_A=$(ck_sig $PK_WA "$ED_PK_A" "$PEER_OF_A" "$FINAL_SEQ" "$STATE_COMMITMENT" "$RESULT")
+SIG_B=$(ck_sig $PK_WB "$PEER_OF_B" "$ED_PK_B" "$FINAL_SEQ" "$STATE_COMMITMENT" "$RESULT")
 send $PK_WA "settle(bytes32,uint64,bytes32,uint8,bytes,bytes)" \
   "$BATTLE_ID" "$FINAL_SEQ" "$STATE_COMMITMENT" "$RESULT" "$SIG_A" "$SIG_B"
 

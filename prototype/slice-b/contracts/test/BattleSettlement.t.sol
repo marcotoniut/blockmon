@@ -50,9 +50,28 @@ contract BattleSettlementTest {
     }
 
     function checkpointDigest(uint64 seq, bytes32 commitment, uint8 result) internal view returns (bytes32) {
+        return checkpointDigestOver(ED_PK_A, ED_PK_B, seq, commitment, result);
+    }
+
+    function checkpointDigestOver(bytes32 edPkA, bytes32 edPkB, uint64 seq, bytes32 commitment, uint8 result)
+        internal
+        view
+        returns (bytes32)
+    {
         return ethHash(
             keccak256(
-                abi.encode(c.CHECKPOINT_TAG(), block.chainid, address(c), BATTLE_ID, RULESET, seq, commitment, result)
+                abi.encode(
+                    c.CHECKPOINT_TAG(),
+                    block.chainid,
+                    address(c),
+                    BATTLE_ID,
+                    RULESET,
+                    edPkA,
+                    edPkB,
+                    seq,
+                    commitment,
+                    result
+                )
             )
         );
     }
@@ -124,6 +143,24 @@ contract BattleSettlementTest {
         bytes memory replayed = sig(PK_A, authDigest(ED_PK_A, X_PK_A)); // bound to BATTLE_ID
         vm.expectRevert(bytes("bad authorisation"));
         c.registerKeys(otherId, playerA, ED_PK_A, X_PK_A, EXPIRY, replayed);
+    }
+
+    function test_counterpartysAnchoredKeyRefused() public {
+        c.registerKeys(BATTLE_ID, playerA, ED_PK_A, X_PK_A, EXPIRY, sig(PK_A, authDigest(ED_PK_A, X_PK_A)));
+        bytes memory sameEd = sig(PK_B, authDigest(ED_PK_A, X_PK_B));
+        bytes memory sameX = sig(PK_B, authDigest(ED_PK_B, X_PK_A));
+        vm.expectRevert(bytes("key anchored by the counterparty"));
+        c.registerKeys(BATTLE_ID, playerB, ED_PK_A, X_PK_B, EXPIRY, sameEd);
+        vm.expectRevert(bytes("key anchored by the counterparty"));
+        c.registerKeys(BATTLE_ID, playerB, ED_PK_B, X_PK_A, EXPIRY, sameX);
+    }
+
+    function test_checkpointOverOtherChannelKeysRefused() public {
+        registerBoth();
+        bytes32 commitment = keccak256("state");
+        bytes32 d = checkpointDigestOver(ED_PK_A, bytes32(uint256(0xbad)), 7, commitment, 1);
+        vm.expectRevert(bytes("bad sig A"));
+        c.settle(BATTLE_ID, 7, commitment, 1, sig(PK_A, d), sig(PK_B, d));
     }
 
     function test_expiredAuthorisationRejected() public {

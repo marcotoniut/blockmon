@@ -136,7 +136,7 @@ topology. It is also not evidence for G0c: both participants share
 ## Stand-in decisions (deliberate, documented)
 
 - The contract stands in for the canonical constitutional layer (`battle-channel.md` §1). Per-battle L1 transactions are a slice artefact, not the production settlement shape.
-- The EVM cannot verify Ed25519 cheaply, so on-chain settlement authorisation uses wallet secp256k1 co-signatures over the checkpoint digest. The contract requires both ephemeral keys to be anchored but never reads them or checks a channel signature, so the Ed25519 channel evidence is not bound on chain: the two are separate trust systems in this slice. In production the anchor venue verifies the ephemeral signatures directly.
+- On-chain settlement authorisation uses wallet secp256k1 co-signatures over the checkpoint digest because the EVM cannot cheaply verify Ed25519. The digest includes both anchored Ed25519 keys, so each wallet attests to the channel it ran. No channel signature is checked on chain; the two remain separate trust systems in this slice. In production, the anchor venue verifies the ephemeral signatures directly.
 - Wallet keys are anvil's deterministic accounts, signed via `cast`; Odin contains no chain cryptography (`architecture.md` §21).
 - Key seeds and battle entropy are fixed test vectors, so every run emits byte-identical fixtures (`fixtures/probe-vectors.json`).
 - Protocol bytes (op encoding, hashes, state commitment) come from `protocol/canonical`, the implementation of `docs/architecture/canonical-encoding.md`; the probe's transcript values are identical to the promoted vectors in `conformance/vectors/g0a-vectors.json`.

@@ -6,13 +6,12 @@ pragma solidity 0.8.24;
 /// final checkpoint, authorisations/signatures, supersession, non-duplication.
 /// Deliberately not generalised (prototype-and-technology.md §2.2).
 ///
-/// Deliberate limitation: channel ops are Ed25519-signed off-chain, which the
-/// EVM cannot cheaply verify. Settlement here is therefore authorised by
-/// wallet co-signatures over the checkpoint digest. registerKeys anchors both
-/// ephemeral keys and _checkDualSigned requires them present, but never reads
-/// their values or verifies a channel signature. Nothing on chain ties this
-/// outcome to the channel that produced it. In production, the anchor venue
-/// verifies the ephemeral signatures directly.
+/// Channel ops use Ed25519 signatures off-chain, which the EVM cannot
+/// cheaply verify. This stand-in therefore authorises settlement via wallet
+/// co-signatures over a checkpoint digest containing both anchored Ed25519
+/// keys. Each wallet attests to the channel it ran, but no channel signature
+/// is verified on chain. In production, the anchor venue verifies the
+/// ephemeral signatures directly.
 contract BattleSettlement {
     enum Status {
         None,
@@ -44,7 +43,7 @@ contract BattleSettlement {
     }
 
     bytes32 public constant KEY_AUTH_TAG = keccak256("blockmon/battle-key-auth/v0");
-    bytes32 public constant CHECKPOINT_TAG = keccak256("blockmon/battle-checkpoint/v0");
+    bytes32 public constant CHECKPOINT_TAG = keccak256("blockmon/battle-checkpoint/v1");
     uint64 public constant RESPONSE_WINDOW = 1 hours;
 
     // Private: the auto-generated getter for a struct this wide exceeds the EVM
@@ -81,6 +80,9 @@ contract BattleSettlement {
         require(player == b.playerA || player == b.playerB, "not a participant");
         require(block.timestamp <= expiry, "authorisation expired");
         require(!keysOf[battleId][player].registered, "already registered");
+        Keys storage peer = keysOf[battleId][player == b.playerA ? b.playerB : b.playerA];
+        // A shared key would let one side sign for, or derive the session secret of, both participants.
+        require(!peer.registered || (peer.edPk != edPk && peer.xPk != xPk), "key anchored by the counterparty");
         bytes32 digest = _ethHash(
             keccak256(
                 abi.encode(KEY_AUTH_TAG, block.chainid, address(this), battleId, b.rulesetHash, edPk, xPk, expiry)
@@ -204,16 +206,39 @@ contract BattleSettlement {
         bytes calldata sigA,
         bytes calldata sigB
     ) private view {
-        require(keysOf[battleId][b.playerA].registered && keysOf[battleId][b.playerB].registered, "keys not anchored");
-        bytes32 digest = _ethHash(
+        Keys storage ka = keysOf[battleId][b.playerA];
+        Keys storage kb = keysOf[battleId][b.playerB];
+        require(ka.registered && kb.registered, "keys not anchored");
+        bytes32 digest = _checkpointDigest(b, battleId, ka.edPk, kb.edPk, seq, stateCommitment, result);
+        require(_recover(digest, sigA) == b.playerA, "bad sig A");
+        require(_recover(digest, sigB) == b.playerB, "bad sig B");
+    }
+
+    function _checkpointDigest(
+        Battle storage b,
+        bytes32 battleId,
+        bytes32 edPkA,
+        bytes32 edPkB,
+        uint64 seq,
+        bytes32 stateCommitment,
+        uint8 result
+    ) private view returns (bytes32) {
+        return _ethHash(
             keccak256(
                 abi.encode(
-                    CHECKPOINT_TAG, block.chainid, address(this), battleId, b.rulesetHash, seq, stateCommitment, result
+                    CHECKPOINT_TAG,
+                    block.chainid,
+                    address(this),
+                    battleId,
+                    b.rulesetHash,
+                    edPkA,
+                    edPkB,
+                    seq,
+                    stateCommitment,
+                    result
                 )
             )
         );
-        require(_recover(digest, sigA) == b.playerA, "bad sig A");
-        require(_recover(digest, sigB) == b.playerB, "bad sig B");
     }
 
     function _ethHash(bytes32 h) private pure returns (bytes32) {
