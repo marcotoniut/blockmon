@@ -135,9 +135,8 @@ t1-v1:
 	odin build ./conformance/gen-t1-v1 -out:./build/gen-t1-v1 -o:none {{ODIN_VET}}
 	./build/gen-t1-v1 > conformance/vectors/g0a-t1-v1-expansion.json
 
-# Q19: the §2 per-operation bound, measured rather than restated. Gates the
-# store's depth-only cost and its agreement with a full derivation; reports the
-# kernel path's scaling, which stays green when the kernel is wired to a store.
+# Q19: measures the §2 per-operation bound. Gates depth-only cost for the
+# kernel and store, and their agreement with a full derivation.
 bounded-access sizes="1 16 256 4096 32768":
 	mkdir -p build
 	odin build ./conformance/bounded-access -out:./build/bounded-access -o:speed {{ODIN_VET}}

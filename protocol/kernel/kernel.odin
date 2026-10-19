@@ -308,8 +308,8 @@ t1_touched_keys :: proc(cmd: Command, fx: Effects, out: ^[dynamic]Touched_Key) {
 	}
 }
 
-// Both accessors switch on the tag. Arithmetic selection of a field would
-// misplace a root without altering any hash.
+// Uses a switch on the tag; picking a field by arithmetic would shift a root
+// while leaving every hash intact.
 domain_entries_for :: proc(
 	d: ^Domain_Entries,
 	tag: canonical.Domain_Tag,
@@ -327,77 +327,37 @@ domain_entries_for :: proc(
 	return nil
 }
 
-entry_record :: proc(
-	entries: []canonical.Tree_Entry,
-	key: [32]byte,
-) -> (
-	record: []byte,
-	present: bool,
-) {
-	for e in entries {
-		if e.key == key {
-			return e.record, true
-		}
-	}
-	return nil, false
-}
-
-// Bounded updates advance this; it is never rebuilt. world_root over canonical
-// state remains the oracle: both must match after each accepted transition.
+// Four roots and their materialised paths. Bounded updates advance them; never
+// rebuilt. world_root over canonical state is the oracle: both must match
+// after each accepted transition.
 Tracked_Commitment :: struct {
-	subject_root:   [32]byte,
-	blockmon_root:  [32]byte,
-	encounter_root: [32]byte,
-	supply_root:    [32]byte,
+	store: canonical.Path_Store,
 }
 
-// Genesis only. Every later value comes from tracked_advance.
+// Genesis only, and the one step that reads the whole world.
+// Every later value comes from tracked_advance.
 track_world :: proc(w: ^World) -> Tracked_Commitment {
 	d := domain_entries(w)
 	defer free_domain_entries(&d)
 	t: Tracked_Commitment
-	t.subject_root, t.blockmon_root, t.encounter_root, t.supply_root = domain_roots(&d)
+	canonical.store_init(&t.store)
+	for tag in ([]canonical.Domain_Tag{.Subject, .Blockmon, .Encounter, .Supply}) {
+		canonical.store_build(&t.store, tag, domain_entries_for(&d, tag))
+	}
 	return t
+}
+
+untrack :: proc(t: ^Tracked_Commitment) {
+	canonical.store_destroy(&t.store)
 }
 
 tracked_root :: proc(t: ^Tracked_Commitment) -> [32]byte {
 	return canonical.world_commitment_v1(
-		t.subject_root,
-		t.blockmon_root,
-		t.encounter_root,
-		t.supply_root,
+		canonical.store_root(&t.store, .Subject),
+		canonical.store_root(&t.store, .Blockmon),
+		canonical.store_root(&t.store, .Encounter),
+		canonical.store_root(&t.store, .Supply),
 	)
-}
-
-tracked_domain_root :: proc(t: ^Tracked_Commitment, tag: canonical.Domain_Tag) -> [32]byte {
-	switch tag {
-	case .Subject:
-		return t.subject_root
-	case .Blockmon:
-		return t.blockmon_root
-	case .Encounter:
-		return t.encounter_root
-	case .Supply:
-		return t.supply_root
-	}
-	return {}
-}
-
-set_tracked_domain_root :: proc(
-	t: ^Tracked_Commitment,
-	tag: canonical.Domain_Tag,
-	root: [32]byte,
-) {
-	switch tag {
-	case .Subject:
-		t.subject_root = root
-	case .Blockmon:
-		t.blockmon_root = root
-	case .Encounter:
-		t.encounter_root = root
-	case .Supply:
-		t.supply_root = root
-	}
 }
 
 Track_Error :: enum {
@@ -424,6 +384,55 @@ tracked_advance :: proc(
 	return tracked_advance_keys(t, before, after, touched[:])
 }
 
+// The record named by a touched key, so the authenticated path encodes only
+// what the transition touched. Subject records are unit.
+touched_record :: proc(w: ^World, k: Touched_Key) -> (record: [dynamic]byte, present: bool) {
+	switch k.tag {
+	case .Subject:
+		for &s in w.subjects {
+			if s == k.key {
+				return nil, true
+			}
+		}
+	case .Blockmon:
+		for &b in w.blockmon {
+			if b.creature_id == k.key {
+				encode_blockmon_record(&record, b)
+				return record, true
+			}
+		}
+	case .Encounter:
+		for &p in w.permits {
+			if p.permit_id == k.key {
+				encode_permit_record(&record, p)
+				return record, true
+			}
+		}
+	case .Supply:
+		if k.key == canonical.supply_singleton_key() {
+			encode_supply(&record, w.supply)
+			return record, true
+		}
+	}
+	return nil, false
+}
+
+@(private)
+Displaced :: struct {
+	key:     Touched_Key,
+	leaf:    [32]byte,
+	present: bool,
+}
+
+// Store writes are history-independent, so restoring displaced leaves in
+// reverse recovers the full pre-state, not just the roots.
+@(private)
+restore :: proc(t: ^Tracked_Commitment, displaced: []Displaced) {
+	#reverse for d in displaced {
+		canonical.store_write(&t.store, d.key.tag, d.key.key, d.leaf, d.present)
+	}
+}
+
 // Touch set is passed in, not derived, so tests can reach the guards.
 tracked_advance_keys :: proc(
 	t: ^Tracked_Commitment,
@@ -431,58 +440,50 @@ tracked_advance_keys :: proc(
 	after: ^World,
 	touched: []Touched_Key,
 ) -> Track_Error {
-	if len(touched) == 0 {
-		return .None
+	for a, i in touched {
+		for b in touched[i + 1:] {
+			if a == b {
+				return .Duplicate_Key
+			}
+		}
 	}
 
-	// Advance a copy: a later-key error must leave the caller's tracker at the
-	// pre-state, not half-advanced.
-	work := t^
+	displaced: [dynamic]Displaced
+	defer delete(displaced)
 
-	// Siblings still come from a walk over state, which is the only step of
-	// this path that is not bounded (protocol.md §2 OPEN, register Q19).
-	db := domain_entries(before)
-	defer free_domain_entries(&db)
-	da := domain_entries(after)
-	defer free_domain_entries(&da)
+	for k in touched {
+		old_record, old_present := touched_record(before, k)
+		defer delete(old_record)
+		new_record, new_present := touched_record(after, k)
+		defer delete(new_record)
 
-	// One batch per domain: keys advance together, each reading the previous
-	// key's write. One key per domain is the transition's contract, as in
-	// Transition 1.
-	for tag in ([]canonical.Domain_Tag{.Subject, .Blockmon, .Encounter, .Supply}) {
-		deltas: [dynamic]canonical.Delta
-		defer delete(deltas)
-		for k in touched {
-			if k.tag != tag {
-				continue
-			}
-			record, present := entry_record(domain_entries_for(&da, tag), k.key)
-			append(&deltas, canonical.Delta{key = k.key, record = record, present = present})
-		}
-		if len(deltas) == 0 {
-			continue
-		}
-
-		next, err := canonical.apply_batch(
-			tag,
-			domain_entries_for(&db, tag),
-			deltas[:],
-			tracked_domain_root(&work, tag),
+		siblings: [canonical.TREE_DEPTH][32]byte
+		leaf, present := canonical.store_read_path(&t.store, k.tag, k.key, &siblings)
+		next, err := canonical.apply_update(
+			k.tag,
+			k.key,
+			old_record[:],
+			old_present,
+			new_record[:],
+			new_present,
+			siblings[:],
+			canonical.store_root(&t.store, k.tag),
 		)
 		switch err {
 		case .None:
 		case .Malformed_Proof:
+			restore(t, displaced[:])
 			return .Malformed_Proof
 		case .Old_Root_Mismatch:
+			restore(t, displaced[:])
 			return .Old_Root_Mismatch
-		case .Duplicate_Key:
-			return .Duplicate_Key
-		case .Empty_Batch:
-			return .Duplicate_Key // unreachable: the domain has at least one delta
 		}
-		set_tracked_domain_root(&work, tag, next)
+
+		append(&displaced, Displaced{k, leaf, present})
+		new_leaf := new_present ? canonical.leaf_hash(k.tag, k.key, new_record[:]) : [32]byte{}
+		written := canonical.store_write(&t.store, k.tag, k.key, new_leaf, new_present)
+		assert(written == next, "the store committed a root the update did not define")
 	}
-	t^ = work
 	return .None
 }
 
@@ -697,6 +698,10 @@ transition :: proc(w: ^World, cmd: Command, ctx: Context, m: ^Manifest) -> (next
 }
 
 make_transcript :: proc(prev: ^World, next: ^World, cmd: Command, fx: Effects) -> Transcript {
+	return transcript_from_roots(world_root(prev), world_root(next), cmd, fx)
+}
+
+transcript_from_roots :: proc(prev_root: [32]byte, next_root: [32]byte, cmd: Command, fx: Effects) -> Transcript {
 	cmd := cmd
-	return Transcript{command_hash(&cmd), world_root(prev), world_root(next), fx}
+	return Transcript{command_hash(&cmd), prev_root, next_root, fx}
 }

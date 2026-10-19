@@ -134,9 +134,9 @@ key_label :: proc(tag: canonical.Domain_Tag, key: [32]byte) -> string {
 	return fmt.tprintf("%s:0x%s", tag_name(tag), string(hex.encode(k[:], context.temp_allocator)))
 }
 
-// Third oracle: the bounded path, from a full derivation of the pre-state to
-// the tier's own commitment. Only the shipped walk runs here, since a copy of
-// it in this checker would test itself.
+// Third oracle: the bounded path, from the pre-state store to the tier's own
+// commitment. Only the shipped path runs here, as a local copy would test
+// itself.
 check_bounded_update :: proc(
 	name: string,
 	before: ^kernel.World,
@@ -146,6 +146,7 @@ check_bounded_update :: proc(
 	want_root: [32]byte,
 ) {
 	tracked := kernel.track_world(before)
+	defer kernel.untrack(&tracked)
 	err := kernel.tracked_advance(&tracked, before, after, cmd, fx)
 	expect(name, fmt.tprintf("bounded update applies (%v)", err), err == .None)
 	expect(
@@ -153,58 +154,6 @@ check_bounded_update :: proc(
 		"bounded update reaches the tier commitment",
 		kernel.tracked_root(&tracked) == want_root,
 	)
-	check_store_serves_the_proofs(name, before, cmd, fx)
-}
-
-// Until the kernel reads from a store, this is what says one could: same roots,
-// same proofs, on the tier's own scenarios (register Q19).
-check_store_serves_the_proofs :: proc(
-	name: string,
-	before: ^kernel.World,
-	cmd: kernel.Command,
-	fx: kernel.Effects,
-) {
-	d := kernel.domain_entries(before)
-	defer kernel.free_domain_entries(&d)
-
-	store: canonical.Path_Store
-	canonical.store_init(&store)
-	defer canonical.store_destroy(&store)
-
-	for tag in ([]canonical.Domain_Tag{.Subject, .Blockmon, .Encounter, .Supply}) {
-		entries := kernel.domain_entries_for(&d, tag)
-		built := canonical.store_build(&store, tag, entries)
-		expect(
-			name,
-			fmt.tprintf("store root matches the derivation for %s", tag_name(tag)),
-			built == canonical.domain_root(tag, entries),
-		)
-	}
-
-	touched: [dynamic]kernel.Touched_Key
-	defer delete(touched)
-	kernel.t1_touched_keys(cmd, fx, &touched)
-	// Reads, not writes: this is the access the §2 bound is about.
-	for t in touched {
-		entries := kernel.domain_entries_for(&d, t.tag)
-		want: [canonical.TREE_DEPTH][32]byte
-		canonical.tree_siblings(t.tag, entries, t.key, &want)
-		got: [canonical.TREE_DEPTH][32]byte
-		reads_before := store.node_reads
-		_, present := canonical.store_read_path(&store, t.tag, t.key, &got)
-		_, want_present := kernel.entry_record(entries, t.key)
-		expect(name, fmt.tprintf("store presence for %s", key_label(t.tag, t.key)), present == want_present)
-		expect(
-			name,
-			fmt.tprintf("store proof for %s", key_label(t.tag, t.key)),
-			got == want,
-		)
-		expect(
-			name,
-			"a read path stays within the tree's depth",
-			store.node_reads - reads_before <= u64(canonical.TREE_DEPTH),
-		)
-	}
 }
 
 main :: proc() {

@@ -301,6 +301,7 @@ tracked_commitment_follows_full_derivation :: proc(t: ^testing.T) {
 		defer destroy_world(&w)
 		m := test_manifest()
 		tracked := track_world(&w)
+		defer untrack(&tracked)
 		testing.expect_value(t, tracked_root(&tracked), world_root(&w))
 
 		next, fx := transition(&w, test_cmd(), test_ctx(e), &m)
@@ -318,6 +319,7 @@ tracked_commitment_still_after_rejection :: proc(t: ^testing.T) {
 	w.permits[0].status = PERMIT_CONSUMED // already spent: rejected, writes nothing
 	m := test_manifest()
 	tracked := track_world(&w)
+	defer untrack(&tracked)
 	before := tracked_root(&tracked)
 
 	next, fx := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
@@ -334,7 +336,8 @@ tracked_commitment_refuses_to_advance_when_drifted :: proc(t: ^testing.T) {
 	defer destroy_world(&w)
 	m := test_manifest()
 	tracked := track_world(&w)
-	tracked.encounter_root[31] ~= 0x01 // one bit of drift in a touched domain
+	defer untrack(&tracked)
+	tracked.store.encounter_root[31] ~= 0x01 // one bit of drift in a touched domain
 
 	next, fx := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
 	defer destroy_world(&next)
@@ -368,6 +371,7 @@ tracked_commitment_advances_two_keys_in_one_domain :: proc(t: ^testing.T) {
 	next.blockmon[1].owner = SUBJECT_A
 
 	tracked := track_world(&w)
+	defer untrack(&tracked)
 	touched := [?]Touched_Key {
 		{tag = .Blockmon, key = fill(0x11)},
 		{tag = .Blockmon, key = fill(0x22)},
@@ -388,6 +392,7 @@ tracked_commitment_refuses_a_repeated_key :: proc(t: ^testing.T) {
 	defer destroy_world(&w)
 	m := test_manifest()
 	tracked := track_world(&w)
+	defer untrack(&tracked)
 
 	next, _ := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
 	defer destroy_world(&next)
@@ -395,13 +400,43 @@ tracked_commitment_refuses_a_repeated_key :: proc(t: ^testing.T) {
 		{tag = .Encounter, key = PERMIT_B},
 		{tag = .Encounter, key = PERMIT_B},
 	}
-	before := tracked
+	before := tracked_root(&tracked)
 	testing.expect_value(
 		t,
 		tracked_advance_keys(&tracked, &w, &next, twice[:]),
 		Track_Error.Duplicate_Key,
 	)
-	testing.expect_value(t, tracked, before)
+	testing.expect_value(t, tracked_root(&tracked), before)
+}
+
+// The encounter key is written before the supply key mismatch is detected, so
+// the store must be restored. Advancing from the true pre-state fails unless
+// both the paths and the root are restored.
+@(test)
+tracked_commitment_unmoved_when_a_later_key_fails :: proc(t: ^testing.T) {
+	w := test_world()
+	defer destroy_world(&w)
+	m := test_manifest()
+	tracked := track_world(&w)
+	defer untrack(&tracked)
+	before := tracked_root(&tracked)
+
+	next, fx := transition(&w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m)
+	defer destroy_world(&next)
+	testing.expect_value(t, fx.outcome, OUTCOME_CREATED)
+
+	claimed := clone_world(&w)
+	defer destroy_world(&claimed)
+	claimed.supply.minted += 1
+	testing.expect_value(
+		t,
+		tracked_advance(&tracked, &claimed, &next, test_cmd(), fx),
+		Track_Error.Old_Root_Mismatch,
+	)
+	testing.expect_value(t, tracked_root(&tracked), before)
+
+	testing.expect_value(t, tracked_advance(&tracked, &w, &next, test_cmd(), fx), Track_Error.None)
+	testing.expect_value(t, tracked_root(&tracked), world_root(&next))
 }
 
 @(test)

@@ -240,4 +240,4 @@ Product/protocol questions intentionally unresolved. No other document may resta
 | Q16 | Channel dispute engine depth (transition proofs, zkVM adjudication) | battle-channel/verification | later verification upgrades |
 | Q17 | ZK proof system and zk-friendly hash selection | protocol/verification | nothing until validity mode |
 | Q18 | Channel checkpoint cadence and transcript compression policy | battle-channel | product tuning |
-| Q19 | Authenticated path store: persistence, batch atomicity, node retention | protocol/infra | mechanism measured bounded by `conformance/bounded-access`; blocks the §2 per-operation bound until the kernel reads from it |
+| Q19 | Authenticated path store: persistence, batch atomicity, node retention | protocol/infra | the §2 bound for precondition reads, which still scan the materialised world; the kernel's paths come from the store, gated by `conformance/bounded-access` |

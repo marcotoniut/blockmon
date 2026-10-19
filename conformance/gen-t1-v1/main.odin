@@ -423,6 +423,7 @@ check_bounded_path :: proc(
 	}
 	bounded_checked += 1
 	tracked := kernel.track_world(before)
+	defer kernel.untrack(&tracked)
 	if err := kernel.tracked_advance(&tracked, before, after, cmd, fx); err != .None {
 		die("%s: the bounded path refused to advance: %v", name, err)
 	}

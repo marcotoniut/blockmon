@@ -106,7 +106,6 @@ store_classify :: proc(
 	return .Branch, {}
 }
 
-// Why chain nodes are not worth storing.
 chain_commitment :: proc(s: ^Path_Store, key: [32]byte, leaf: [32]byte, depth: int) -> [32]byte {
 	c := leaf
 	for level := TREE_DEPTH - 1; level >= depth; level -= 1 {

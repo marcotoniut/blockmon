@@ -271,30 +271,29 @@ check_tracked_step :: proc(
 	fx: kernel.Effects,
 	carried: ^kernel.Tracked_Commitment = nil,
 ) {
-	tracked := carried == nil ? kernel.track_world(before) : carried^
-	was := kernel.tracked_root(&tracked)
+	fresh := carried == nil ? kernel.track_world(before) : kernel.Tracked_Commitment{}
+	defer kernel.untrack(&fresh)
+	tracked := carried == nil ? &fresh : carried
+	was := kernel.tracked_root(tracked)
 	tracked_steps += 1
 	tracked_steps_total += 1
 
-	if err := kernel.tracked_advance(&tracked, before, after, cmd, fx); err != .None {
+	if err := kernel.tracked_advance(tracked, before, after, cmd, fx); err != .None {
 		fail("tracked advance refused: %v", err)
 		dump_inputs(before, cmd, kernel.Context{}, &kernel.Manifest{})
 		return
 	}
 	if fx.outcome == kernel.OUTCOME_REJECTED {
-		if kernel.tracked_root(&tracked) != was {
+		if kernel.tracked_root(tracked) != was {
 			fail("rejection moved the tracked commitment")
 		}
 		if !world_equal(before, after) {
 			fail("rejection moved the state")
 		}
 	}
-	if kernel.tracked_root(&tracked) != kernel.world_root(after) {
+	if kernel.tracked_root(tracked) != kernel.world_root(after) {
 		fail("tracked commitment != full derivation")
 		dump_inputs(before, cmd, kernel.Context{}, &kernel.Manifest{})
-	}
-	if carried != nil {
-		carried^ = tracked
 	}
 }
 
@@ -549,10 +548,8 @@ sequence_case :: proc(r: ^Rng) {
 	// cannot show accumulated drift.
 	tracked_seen += 1
 	track := tracked_seen % tracked_stride == 0 && tracked_steps < tracked_budget
-	tracked: kernel.Tracked_Commitment
-	if track {
-		tracked = kernel.track_world(&w)
-	}
+	tracked := track ? kernel.track_world(&w) : kernel.Tracked_Commitment{}
+	defer kernel.untrack(&tracked)
 
 	steps := 16 + int(rand_below(r, 33))
 	for step in 0 ..< steps {
