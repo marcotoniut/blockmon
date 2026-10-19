@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | **v0.1**, provisionally pinned under `protocol.md` §1 authority; replaceable only via migration (`protocol.md` §11); every change bumps the domain version suffix |
-| **Last reviewed** | 2026-09-01 |
+| **Last reviewed** | 2026-10-19 |
 | **Owns** | Canonical byte encoding of protocol-visible values, protocol hash and domain separation, transcript/hash-chain construction, the G0a golden-vector corpus definition |
 | **Depends on** | `architecture.md` §21 (this is **protocol cryptography**, layer 1); `protocol.md` §§1-2; `battle-channel.md` §4 |
 
@@ -181,9 +181,9 @@ Canonical form: `subjects`, `blockmon` (by creature_id) and `permits` (by
 permit_id) are sorted strictly ascending byte-lexicographically; anything else
 is non-canonical and MUST be rejected.
 
-The state reader handles kernel input, leaving wire objects to the strict decoder from §2. While maintaining §2's structural rules against truncation or trailing bytes, the reader accepts forms that INVALID_STATE rejects: unsorted listings, identical repeated keys, and unassigned enum discriminants.
+The state reader, not §2's strict decoder, reads kernel input; wire objects stay under the strict decoder. It accepts three forms that INVALID_STATE rejects: unsorted listings, identical repeated keys and unassigned enum discriminants. It refuses input that fails to frame as a listing under §2 (truncation, count exceeding remaining input, or trailing bytes) and listings that denote no mapping. Both refusals occur before any transition, so they have no outcome, commitment or transcript.
 
-It rejects listings that denote no mapping. This refusal occurs before any transition, so it produces no outcome, commitment, or transcript. The kernel processes the listing as read and commits to the mapping it denotes. Re-running an INVALID_STATE rejection reads the input state in the same way.
+The kernel processes the listing as read and commits to the mapping it denotes. Re-running an INVALID_STATE rejection reads the input state in the same way.
 
 A `BlockmonRecord` has no validity rule beyond §7's identifier binding. Its `owner` need not be an admitted subject, and its `creature_id` need not derive from its `origin_permit`.
 
@@ -241,14 +241,9 @@ INVALID_STATE rejections are decided by re-running the transition against the co
 
 Provisional stand-ins, explicitly NOT frozen architecture:
 
-- The flat `world_root` over canonical state bytes is the archived v0 stand-in. The authenticated state tree in §7 replaced it, a migration in the `protocol.md` §11 sense.
 - `assigned_round`'s shape and constants, the capture seed derivation,
   `catch_rate_bp` and `creature_id`'s derivation are prototype pins of
   mechanisms `protocol.md` §5 and the ruleset own.
-- Semantic rule pinned by the kernel: precondition failures are defined
-  rejections that consume nothing; once the entropy-bound roll executes, the
-  permit and one capture-class capability are consumed unconditionally
-  (consume-on-attempt, `protocol.md` §6).
 
 ## 7. Authenticated State Tree (v1)
 
@@ -308,6 +303,15 @@ A node with one empty child is hashed like any other node; there is no path
 collapse. The level-0 slot of an absent key holds `empty[0]`.
 
 **World commitment.**
+
+```mermaid
+flowchart BT
+    S["subject tree, tag 1"] -->|"subject_root"| W["WorldCommitmentV1"]
+    B["blockmon tree, tag 2"] -->|"blockmon_root"| W
+    E["encounter tree, tag 3"] -->|"encounter_root"| W
+    P["supply tree, tag 4"] -->|"supply_root"| W
+    W -->|"ProtocolHash, blockmon/world/v1"| R["world_root"]
+```
 
 ```
 WorldCommitmentV1 := record { subject_root:   hash32, blockmon_root: hash32,
@@ -385,8 +389,8 @@ siblings.
 
 The post-state root an update produces must equal the domain root of a full
 derivation over the post-state mapping. Updates anchor in the pre-state and are
-not root constructors. An old value not committed by the claimed pre-state root
-is refused, not climbed. No update can assert a root its pre-state does not
+not root constructors. When the old value's climb fails to reach the claimed pre-state root, the update is refused and the new value is not climbed.
+No update can assert a root its pre-state does not
 support. A rejected update leaves the domain root at its pre-state value.
 
 A batch groups updates to distinct keys within a single domain, allowing at most
@@ -397,6 +401,8 @@ reason: since no other update in the batch targets a specific key, that key's
 old value is identical regardless of position. Updates to the same key do not
 form a batch; they compose sequentially and must be normalised to a single final
 value before this property applies.
+
+Batch updates apply in sequence. The first anchors in the batch's pre-state root. Each subsequent update anchors in the root produced by its predecessor, taking siblings from the tree as the earlier updates left it.
 
 An update's rejection classes are those of a proof, applied to both of its
 values.

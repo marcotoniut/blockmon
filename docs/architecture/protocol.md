@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.2**, invariants frozen; items marked OPEN are the protocol-specification docket; battle-channel amendment 2026-09-01 |
-| **Last reviewed** | 2026-09-01 |
+| **Status** | **v0.2**, invariants frozen; items marked OPEN are the protocol-specification docket |
+| **Last reviewed** | 2026-10-19 |
 | **Owns** | Canonical state/encoding, transition semantics, ordering and receipts, entropy, capabilities, finality, ordering policies, manifests, conservation, migration, checkpoints, exit semantics, envelopes |
 | **Depends on** | `architecture.md` (invariants; not restated) |
 
@@ -34,7 +34,7 @@ REQUIRED:
 - **Totality**: every syntactically valid sequenced command produces a defined outcome, including defined failure on unmet preconditions. Batch invalidity is never the answer to a bad command.
 - **Determinism**: integer/fixed-point arithmetic only; canonical iteration order; canonical versioned encodings; defined overflow behaviour; seedable versioned RNG only; time only as canonical input; no allocator/platform behaviour influencing canonical output. Cross-target and cross-implementation conformance are gates, not aspirations.
 - **Kernel step budget**: a per-transition bound (ProtocolManifest constant) so no valid transition can exhaust verifiers.
-- **Bounded authenticated access**: every transition may read or update a protocol-bounded number of authenticated keys, and each authenticated-key operation incurs a cost bounded by the protocol's fixed tree depth, never by total state size. OPEN (register Q19): this bound constrains execution, not just hashing. Transition 1 meets the per-operation commitment bound: siblings for touched keys come from the materialised store, and only genesis reads the whole world. Precondition reads and the INVALID_STATE validity guard still scan the materialised world. Closing Q19 requires valid input to be a property preserved by canonical execution, checked only at genesis and snapshot import, with batch semantics that publish new domain roots atomically.
+- **Bounded authenticated access**: every transition may read or update a protocol-bounded number of authenticated keys, and each authenticated-key operation incurs a cost bounded by the protocol's fixed tree depth, never by total state size. OPEN (register Q19): this bound constrains execution, not just hashing. Transition 1 meets the per-operation commitment bound. Siblings for touched keys are read from the materialised store; only genesis reads the whole world. The store holds leaf commitments, not records. The kernel keeps records in the materialised world, and its precondition reads plus the INVALID_STATE validity guard scan that world. Closing Q19 requires valid input to be a property preserved by canonical execution, checked only at genesis and snapshot import, with batch semantics that publish new domain roots atomically.
 - The transcript is the ordered sub-transition record sufficient for replay and challenge; canonical transcript encoding is versioned.
 
 ## 3. Canonical Ordering

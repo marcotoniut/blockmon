@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | **v0.4**, gate categories frozen; numeric thresholds are measurement targets, not architecture truths; no technology selected; re-sequenced 2026-09-01: the battle-channel E2E slice (§2) precedes Transition 1 |
-| **Last reviewed** | 2026-09-01 |
-| **Owns** | Current implementation priority (§2), acceptance gates (canonical definitions), experiments, cost-model method, candidate evaluation, eligibility procedure |
+| **Status** | **v0.4**, gate categories frozen; numeric thresholds are measurement targets, not architecture truths; no technology selected |
+| **Last reviewed** | 2026-10-19 |
+| **Owns** | Slice B (§2), acceptance gates (canonical definitions), experiments, cost-model method, candidate evaluation, eligibility procedure |
 | **Depends on** | All other documents (requirements; not restated). Superseded by the architecture-choice ADR once recorded |
 
 The prototype is the smallest experiment capable of **disproving** the architecture, not a miniature production system. Gates establish viability; selection is comparative.
@@ -14,13 +14,13 @@ The prototype is the smallest experiment capable of **disproving** the architect
 ## 1. Prototype Transitions
 
 - **Transition 0 (throwaway infrastructure smoke)**: trivial state transition proving build targets, canonical encoding, hashing, candidate-machine integration, basic replay. Failures here are infrastructure, not semantics.
-- **Slice B (battle-channel E2E, the immediate target)**: the smallest end-to-end proof of the integration boundaries: minimal representative deterministic transition, canonical encoding/hash/commitment, battle anchoring, session-secret derivation, one channel exchange, dual-signed checkpoint, cooperative settlement on a local chain, negative paths. Defined in §2. Slice B proves seams, not the constitution: DA, escape, issuance and succession remain gated by G4, G6, G7 and the experiments.
-- **Transition 1 (the acceptance transition)**: permit reservation and consumption, assigned entropy, kernel capture roll, capability consumption, new creature in the authenticated tree, root update. Exercises discovery boundary, entropy ordering, determinism, state authentication, supply accounting and settlement in one path. Status: The kernel in `protocol/kernel` commits `blockmon/world/v1` through the authenticated state tree described in `canonical-encoding.md` §7. The invariant suite is green, and the v1 tier pins three hand-derived scenarios. No independent implementation covers Transition 1 under v1, as G0c's cleanroom only reproduces the archived v0 corpus that the current kernel cannot produce. The bounded authenticated path is measured but not integrated (register Q19). Sequencing, DA, and settlement integration remain within the scope of the experiments.
+- **Slice B (battle-channel E2E)**: the smallest end-to-end proof of the integration boundaries: minimal representative deterministic transition, canonical encoding/hash/commitment, battle anchoring, session-secret derivation, one channel exchange, dual-signed checkpoint, cooperative settlement on a local chain, negative paths. Defined in §2. Slice B proves seams, not the constitution: DA, escape, issuance and succession remain gated by G4, G6, G7 and the experiments.
+- **Transition 1 (the acceptance transition)**: permit reservation and consumption, assigned entropy, kernel capture roll, capability consumption, new creature in the authenticated tree, root update. Exercises discovery boundary, entropy ordering, determinism, state authentication, supply accounting and settlement in one path. Status: The kernel in `protocol/kernel` commits `blockmon/world/v1` via the authenticated state tree defined in `canonical-encoding.md` §7, advancing it through a store bounded by tree depth. Its precondition reads still scan the materialised world (register Q19). G0 (§3) records conformance. Sequencing, DA and settlement integration remain within the scope of the experiments.
 - Prototype batches are **region-scoped**; cross-region ordering is out of scope and this scoping is declared so DA/sequencing measurements are read against the right requirement.
 
-## 2. Current Priority: the Battle-Channel E2E Slice
+## 2. Slice B: the Battle-Channel E2E Slice
 
-**The current goal is not to build a real Odin game client.** The immediate target is a barebones, end-to-end provable architecture running against a local test chain, with the Odin side kept to the absolute minimum necessary to prove the integration boundaries.
+Slice B is complete and frozen. The Odin implementation is minimal, covering only what the integration boundaries require; it is not a game client. The slice validated those boundaries end to end against a local test chain. `prototype/slice-b/README.md` contains run instructions.
 
 ### 2.1 Scope
 
@@ -50,26 +50,29 @@ Generalisation constraint: the Solidity contract, Odin chain interface, ABI hand
 
 ### 2.3 Local chain tooling
 
-Chosen for the slice: **Foundry (Anvil + Forge + Cast)**, not yet installed locally. Against the requirements: one-command startup (`anvil`); deterministic funded accounts (fixed mnemonic); instant reset (restart, or `anvil_reset`); fast deployment (`forge script`/`forge create`); block/time manipulation for timeout tests (`evm_increaseTime`, `anvil_mine`, `anvil_setNextBlockTimestamp`); static binaries with straightforward CI execution. Hardhat Network offers equivalent manipulation on a Node toolchain this repo otherwise has no use for; dev-mode geth lacks the ergonomics. This is slice scaffolding optimised for deterministic E2E, **not** technology selection; the comparative ADR (§5) is untouched by it.
-
-The on-chain verifier is written in the chain-native environment, for EVM most likely Solidity with small Yul/assembly sections only where justified (`battle-channel.md` §5). The battle simulator is never ported to Solidity for the prototype.
+The slice uses Foundry: Anvil for the local chain, Forge for the contract and its tests, and Cast for wallet signing. This choice was driven by one-command startup, deterministic funded accounts, instant reset, and the chain-time manipulation required for timeout tests. It is slice scaffolding rather than a technology selection, and the comparative ADR (§5) remains untouched. The verifier is written in Solidity (`battle-channel.md` §5); the battle simulator is never ported to it.
 
 ### 2.4 E2E shape and negative paths
 
-```
-start anvil
-→ deploy minimal settlement contract
-→ create battle
-→ register/anchor participant battle public keys (wallet-authorised)
-→ A and B derive the battle session secret off-chain
-→ a few deterministic representative channel operations locally
-→ build/sign/hash-chain final checkpoint
-→ submit compact settlement
-→ contract validates and records outcome
-→ E2E asserts chain state and deterministic local state agree
+```mermaid
+sequenceDiagram
+    participant H as E2E harness
+    participant C as Settlement contract on Anvil
+    participant A as Participant A
+    participant B as Participant B
+    H->>C: deploy, create battle
+    A->>C: anchor ephemeral keys, wallet-authorised
+    B->>C: anchor ephemeral keys, wallet-authorised
+    Note over A,B: derive the battle session secret off-chain
+    A->>B: deterministic channel operations
+    B->>A: deterministic channel operations
+    Note over A,B: build, sign and hash-chain the final checkpoint
+    A->>C: submit compact settlement
+    C->>C: validate and record the outcome
+    H->>C: assert chain state matches deterministic local state
 ```
 
-Negative paths, cheapest first: **invalid signature rejected** and **duplicate settlement rejected** (pure Forge tests, near-free; both required); **stale checkpoint superseded**; **timeout settlement after advancing chain time** (needs the harness plus time manipulation; required unless it materially expands scope, as it is the only path exercising deadlines end to end).
+All negative paths execute. Forge tests reject invalid signatures and duplicate settlements, and supersede stale checkpoints. The E2E run settles by timeout after advancing chain time; it is the only path that exercises deadlines end to end.
 
 ### 2.5 What the slice proves, and what it does not
 

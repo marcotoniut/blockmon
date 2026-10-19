@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.2**, properties marked REQUIRED frozen; mechanisms marked OPEN or provisional inline; 2026-09-01 additions: participant chain reading (§§2-3), incremental legality (§4), settled state recorded (§5) |
-| **Last reviewed** | 2026-09-01 |
+| **Status** | **v0.2**, properties marked REQUIRED frozen; mechanisms marked OPEN or provisional inline |
+| **Last reviewed** | 2026-10-19 |
 | **Owns** | Battle-channel cryptography (key hierarchy, session-secret establishment, domain separation), channel operation semantics (transcript, checkpoints, hidden information), channel settlement interface, disconnect/timeout/dispute model, channel attack model |
 | **Depends on** | `architecture.md` §§4, 9, 21; `protocol.md` §§7-8, 14; `trust-and-economy.md` §6 (not restated) |
 
@@ -39,6 +39,19 @@ Reference shape; the listed properties are REQUIRED, the concrete primitives pro
 2. Each participant authorises their ephemeral battle public key with their wallet identity. The authorisation MUST bind at minimum: battle id, the ephemeral public key, the ruleset/ProtocolManifest hash, and an expiry. An unbound authorisation is replayable into battles the wallet never intended.
 3. The anchor venue records: battle id, participants, authorised ephemeral public keys, ruleset/version binding, and any required public commitments (stakes, hidden-state commitments).
 4. Both participants derive the same session secret locally through an authenticated Diffie-Hellman exchange over the anchored keys:
+
+```mermaid
+sequenceDiagram
+    participant A as Participant A
+    participant V as Anchor venue
+    participant B as Participant B
+    Note over A,B: each generates an ephemeral battle keypair
+    A->>V: pkA, authorised by A's wallet
+    B->>V: pkB, authorised by B's wallet
+    A->>V: read the anchored record
+    B->>V: read the anchored record
+    Note over A,B: each derives K_battle locally, and it never leaves either client
+```
 
 ```
 A computes dh = DH(skA, pkB)          B computes dh = DH(skB, pkA)
@@ -101,6 +114,16 @@ Cost targets: cooperative settlement O(1) at the anchor venue (and aggregated be
 ## 6. Disconnects, Timeouts, Disputes
 
 REQUIRED: the protocol never attempts to distinguish a malicious disconnect from network failure. Non-response is handled by deadlines: a channel silent past its deadline resolves through the timeout path from the highest-sequence dual-signed checkpoint (or the anchored opening state if none exists), after a response window in which the counterparty may present a higher-sequence dual-signed checkpoint. Outcome severity for the non-responder is ruleset policy (the same calibration question as `architecture.md` register Q2).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Open: battle anchored
+    Open --> Settled: cooperative close, final dual-signed checkpoint
+    Open --> TimeoutPending: deadline passed, claim from the highest dual-signed checkpoint
+    TimeoutPending --> TimeoutPending: higher-sequence dual-signed checkpoint within the response window
+    TimeoutPending --> Settled: response window closes
+    Settled --> [*]
+```
 
 Dispute sophistication beyond this (transition proofs, zkVM adjudication of a disputed step) is deliberately deferred (register Q16). The first implementation needs exactly: invalid-signature rejection, stale-checkpoint supersession, duplicate-settlement rejection, timeout settlement.
 

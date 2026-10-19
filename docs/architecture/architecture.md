@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.4 Frozen**, subject to falsification by the prototype gates (`prototype-and-technology.md`); battle-channel amendment 2026-09-01; §21 delegation-asymmetry addition 2026-09-01 |
-| **Last reviewed** | 2026-09-01 |
+| **Status** | **v0.4 Frozen**, subject to falsification by the prototype gates (`prototype-and-technology.md`) |
+| **Last reviewed** | 2026-10-19 |
 | **Owns** | Durable cross-layer invariants, cryptographic layer separation, trust model, attack-ownership index, open-questions register |
 | **Does not own** | Protocol semantics (`protocol.md`), battle-channel mechanics (`battle-channel.md`), physical/economic trust (`trust-and-economy.md`), verification and recovery mechanics (`verification.md`), gates and technology evaluation (`prototype-and-technology.md`) |
 
@@ -59,6 +59,14 @@ Membership rule:
 - **Kernel**: capability/permit consumption, entropy binding and value-relevant rolls (capture creation, breeding-derived creation, lottery allocation), creation/transfer/supply arithmetic, escrow, envelope enforcement, per-transition step budget.
 - **Simulation layer**: battles, per-turn logic, encounter behaviour, progression computation. Deterministic. Verified through one of two venues: canonical transcription with replay and challenge, or, for channelised battles, bilateral dual signature with the transcript held by the participants as dispute evidence (`battle-channel.md`). Either way its outputs enter the kernel only as **envelope-checked deltas**.
 - **Envelopes are blast-radius bounds, not correctness proofs.** They carry per-event and per-subject-per-period (rate/aggregate) dimensions; a stream of individually legal maxima is itself bounded.
+
+```mermaid
+flowchart LR
+    S["Simulation layer"] -->|"replay and challenge"| E{"Envelope check"}
+    C["Battle channel"] -->|"dual-signed result"| E
+    E -->|"bounded delta"| K["Constitutional kernel"]
+    E -->|"out of envelope"| R["Defined rejection"]
+```
 
 Guarantee ladder: kernel validity → simulation replay/fraud verification (canonical path) or bilateral consent with dispute fallback (channels) → economic envelopes → product/fairness policy. The kernel never claims to guarantee simulation correctness merely because outputs stayed inside bounds.
 
@@ -240,4 +248,4 @@ Product/protocol questions intentionally unresolved. No other document may resta
 | Q16 | Channel dispute engine depth (transition proofs, zkVM adjudication) | battle-channel/verification | later verification upgrades |
 | Q17 | ZK proof system and zk-friendly hash selection | protocol/verification | nothing until validity mode |
 | Q18 | Channel checkpoint cadence and transcript compression policy | battle-channel | product tuning |
-| Q19 | Authenticated path store: persistence, batch atomicity, node retention | protocol/infra | the §2 bound for precondition reads, which still scan the materialised world; the kernel's paths come from the store, gated by `conformance/bounded-access` |
+| Q19 | Authenticated path store: persistence, batch atomicity, node retention | protocol/infra | the §2 bound for precondition reads, which still scan the materialised world |

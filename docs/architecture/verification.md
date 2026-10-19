@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.3**, requirements stable; verification mechanisms experimental by design; battle-channel amendment 2026-09-01 |
-| **Last reviewed** | 2026-09-01 |
+| **Status** | **v0.3**, requirements stable; verification mechanisms experimental by design |
+| **Last reviewed** | 2026-10-19 |
 | **Owns** | Conformance model, canonical verification machine, verification maturity/modes, claim/challenge state machine, corrections and derived state, DA mechanics, recovery/relaunch/succession, exits, liveness, verifier resource budgets |
 | **Depends on** | `architecture.md`, `protocol.md` (invariants and semantics; not restated) |
 
@@ -46,6 +46,18 @@ Authority  →  Quorum  →  Permissionless { optimistic | validity | hybrid }
 - **Verification versioning**: a settled claim binds (ProtocolManifest, VerificationManifest); historical commitments remain verifiable under the semantics active at acceptance.
 
 ## 5. Claim / Challenge State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Claimed: root published, immutable
+    Claimed --> OutputFinal: survives the active acceptance rule
+    Claimed --> Challenged: challenge within the window
+    Challenged --> Claimed: challenge fails
+    Challenged --> Corrected: challenge succeeds
+    Claimed --> Discarded: committer failed before output finality
+    Corrected --> [*]: re-executed from the last correct root
+    Discarded --> [*]: recomputed, not adjudicated
+```
 
 - Claims are **immutable once published**; supersession happens only through the correction procedure, never by silent replacement.
 - Claims and challenges are **keyed to roots, not committer identities**; succession does not invalidate or orphan active disputes.

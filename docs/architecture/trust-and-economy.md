@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **v0.3**, boundaries and requirements stable; mechanisms marked provisional inline; battle-channel amendment 2026-09-01 |
-| **Last reviewed** | 2026-09-01 |
+| **Status** | **v0.3**, boundaries and requirements stable; mechanisms marked provisional inline |
+| **Last reviewed** | 2026-10-19 |
 | **Owns** | Physical truth boundary, Discovery Authority, permit lifecycle, value-creation matrix, issuance envelope and capabilities, privacy, participation/automation residuals, sponsored-fee exhaustion, physical/economic attack model |
 | **Depends on** | `architecture.md` §§6-7, 16 and `protocol.md` §§5-6 (not restated) |
 
@@ -19,12 +19,16 @@ Protocol truth begins at the authorisation. Everything before it (GPS, sensors, 
 
 ## 2. Encounter Lifecycle and Permit
 
-```
-fresh challenge (bound to claim context) → evidence → Discovery Authority
-    → signed EncounterPermit | rejection
-    → permit committed (reserved at canonical position; consume-on-attempt)
-    → entropy assigned by rule → deterministic capture roll (kernel)
-    → creature enters canonical state, consuming a capture-class capability
+```mermaid
+flowchart TD
+    A["Fresh challenge, bound to claim context"] --> B["Evidence"] --> C{"Discovery Authority"}
+    C -->|"refuses"| X["Rejection"]
+    C -->|"signs"| D["EncounterPermit"]
+    D --> E["Permit committed: reserved at a canonical position"]
+    E --> F["Entropy assigned by rule"]
+    F --> G["Deterministic capture roll in the kernel: consumes the permit and a capture-class capability"]
+    G -->|"success"| H["Creature enters canonical state"]
+    G -->|"failure"| Y["No creature; nothing is refunded"]
 ```
 
 Permit shape (conceptual, not wire format): subject, encounter class, policy, expiry, nonce, authority id, signature(s). Properties: single-reservation, expiring, bound to a subject, auditable, containing **no raw location data**. Discovery establishes eligibility; creation is a kernel outcome.
