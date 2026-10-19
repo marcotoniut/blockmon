@@ -12,7 +12,7 @@ pre-commit:
       run: just gated lint
     rust:
       glob: "*.rs"
-      run: just g0c && just tree-v1-rust
+      run: just g0c && just g0c-v1 && just tree-v1-rust
 
 # Check the full gate set, not just the files in the pushed commits.
 # A commit with --no-verify must not reach the remote unchecked.
@@ -43,5 +43,7 @@ pre-push:
       run: just gated bounded-access
     g0c:
       run: just g0c
+    g0c-v1:
+      run: just g0c-v1
     tree-v1-rust:
       run: just tree-v1-rust

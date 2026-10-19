@@ -158,3 +158,7 @@ tree-v1:
 g0c:
 	cd conformance/g0c/impl && cargo fmt --check && cargo clippy --quiet --all-targets --all-features && cargo run --quiet -- ../../vectors/g0a-vectors.json ../../vectors/g0a-expansion.json
 
+# G0c under world/v1: cleanroom Rust checker over both Transition 1 v1 tiers
+g0c-v1:
+	cd conformance/g0c-v1/impl && cargo fmt --check && cargo clippy --quiet --all-targets --all-features && cargo test --release --quiet && cargo run --release --quiet -- ../../vectors/g0a-t1-v1.json ../../vectors/g0a-t1-v1-expansion.json
+

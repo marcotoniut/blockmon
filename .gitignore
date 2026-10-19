@@ -12,9 +12,8 @@
 /blockmon
 /3d-computer-graphics-programming
 
-# Cargo artefacts (G0c)
-conformance/g0c/impl/target/
-conformance/tree-v1/impl/target/
+# Cargo artefacts of the cleanroom crates
+conformance/*/impl/target/
 
 # Foundry artefacts (Slice B)
 prototype/slice-b/contracts/out/

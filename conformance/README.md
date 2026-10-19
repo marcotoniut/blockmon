@@ -62,6 +62,8 @@ t1-v1/              Odin checker for the Transition 1 v1 tier; the hand-derived
                     tier, the full derivation and the bounded update path must
                     agree on every scenario
 g0c/                Rust cleanroom for the v0 kernel, built from the spec
+g0c-v1/             Rust cleanroom for Transition 1 under world/v1, built from
+                    the spec, run as a standing gate
 tree-v1/            Rust cleanroom for the v1 tree, built from the spec, run as
                     a standing gate
 cross-target.sh     emits the v1 tree expansion tier per target; every leg must
@@ -82,6 +84,7 @@ just t1-v1                      # Transition 1 under world/v1: three oracles, th
 just g0b                        # 10^6 singles + 2*10^4 sequences, 500 tracked steps per phase
 just g0b 12166583181037 1000000 20000 20000   # CI depth: 20000 tracked steps per phase
 just g0c                        # Rust cleanroom over the archived v0 corpora
+just g0c-v1                     # Rust cleanroom over both Transition 1 v1 tiers
 just tree-v1-rust               # Rust cleanroom over both v1 tree tiers
 bash conformance/cross-target.sh  # v1 expansion tier: native + linux_{arm64,amd64,riscv64} via docker
 ```

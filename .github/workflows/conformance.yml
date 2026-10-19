@@ -59,4 +59,5 @@ jobs:
         with:
           tool: just
       - run: just g0c
+      - run: just g0c-v1
       - run: just tree-v1-rust

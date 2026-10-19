@@ -1,0 +1,23 @@
+[package]
+name = "g0c-v1"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Cleanroom derivation of blockmon Transition 1 under the blockmon/world/v1 commitment, checked against the published T1 v1 corpora"
+
+[dependencies]
+sha2 = "0.10"
+serde_json = "1"
+hex = "0.4"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+unwrap_in_result = "deny"
+get_unwrap = "deny"
+todo = "deny"
+unimplemented = "deny"
