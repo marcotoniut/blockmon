@@ -1,0 +1,17 @@
+name: mutations
+
+# Gates must fail when their property breaks. Runs take about ten minutes, so
+# they run weekly, not per change.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+jobs:
+  mutations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v27
+      - run: nix develop -c just mutations

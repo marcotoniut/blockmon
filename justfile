@@ -162,3 +162,8 @@ g0c:
 g0c-v1:
 	cd conformance/g0c-v1/impl && cargo fmt --check && cargo clippy --quiet --all-targets --all-features && cargo test --release --quiet && cargo run --release --quiet -- ../../vectors/g0a-t1-v1.json ../../vectors/g0a-t1-v1-expansion.json
 
+# Every gate must go red when its property breaks. Runs on HEAD in a
+# throwaway worktree; pass mutation ids to run a subset.
+mutations *ids:
+	python3 conformance/mutations/mutate.py {{ids}}
+

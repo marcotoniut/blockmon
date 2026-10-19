@@ -66,8 +66,11 @@ g0c-v1/             Rust cleanroom for Transition 1 under world/v1, built from
                     the spec, run as a standing gate
 tree-v1/            Rust cleanroom for the v1 tree, built from the spec, run as
                     a standing gate
-cross-target.sh     emits the v1 tree expansion tier per target; every leg must
-                    equal the native run and the committed vectors byte-for-byte
+cross-target.sh     emits both v1 expansion tiers, tree and Transition 1, per
+                    target; every leg must equal the native run and the
+                    committed vectors byte-for-byte
+mutations/          one broken property per entry and the gates that must go red
+                    for it, run against HEAD in a throwaway worktree
 fuzz/               G0b property/fuzz harness for the Transition 1 kernel
                     (raw generators, model oracle, canonical-bytes equality,
                     commitment tracking; reproduce any failure from
@@ -86,7 +89,8 @@ just g0b 12166583181037 1000000 20000 20000   # CI depth: 20000 tracked steps pe
 just g0c                        # Rust cleanroom over the archived v0 corpora
 just g0c-v1                     # Rust cleanroom over both Transition 1 v1 tiers
 just tree-v1-rust               # Rust cleanroom over both v1 tree tiers
-bash conformance/cross-target.sh  # v1 expansion tier: native + linux_{arm64,amd64,riscv64} via docker
+just mutations                  # every gate must go red under its mutations (minutes)
+bash conformance/cross-target.sh  # both v1 expansion tiers: native + linux_{arm64,amd64,riscv64} via docker
 ```
 
 Two tiers. The seed corpus is the small constitutional one: 47 vectors plus 4
