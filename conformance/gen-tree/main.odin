@@ -327,6 +327,7 @@ main :: proc() {
 	emit(
 		"  \"provenance\": \"generator-produced from protocol/canonical/tree.odin; the hand-derived tree-v1-constitutional tier pins the meaning and is never regenerated\",\n",
 	)
+	emit("  \"records\": \"A proof's leaf is the value a verifier computes, kept for comparison. The logical proof, as defined in canonical-encoding.md, does not include it.\",\n")
 	emit("  \"seed\": \"0x%x\",\n", TREE_V1_SEED)
 	emit("  \"depth\": %d,\n", canonical.TREE_DEPTH)
 

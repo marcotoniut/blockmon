@@ -1,6 +1,7 @@
 {
   "tier": "tree-v1-constitutional",
   "derivation": "hand-derived from canonical-encoding.md \u00a77 prose alone, before any implementation exists",
+  "records": "A proof's leaf is the value a verifier computes, kept for comparison. The logical proof, as defined in canonical-encoding.md, does not include it.",
   "construction": {
     "depth": 256,
     "hash": "SHA-256 via ProtocolHash(domain, payload) = SHA-256(u8(len(domain)) || domain || payload)",

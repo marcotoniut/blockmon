@@ -2,6 +2,7 @@
   "tier": "tree-v1-expansion",
   "commitment_version": "blockmon/world/v1",
   "provenance": "generator-produced from protocol/canonical/tree.odin; the hand-derived tree-v1-constitutional tier pins the meaning and is never regenerated",
+  "records": "A proof's leaf is the value a verifier computes, kept for comparison. The logical proof, as defined in canonical-encoding.md, does not include it.",
   "seed": "0x7ee1c0de5eed",
   "depth": 256,
   "occupancy": [
