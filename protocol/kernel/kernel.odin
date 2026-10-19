@@ -3,12 +3,6 @@
 //
 // Authority: protocol.md §§2,5,6,10; trust-and-economy.md §2; architecture.md
 // §§6,9; canonical-encoding.md §6 encodings.
-//
-// This transition is a pure function with no side effects. All
-// state-affecting inputs are parameters. It does not read clocks, RNGs,
-// filesystems, environments, or networks. Semantic failures are defined
-// outcomes (totality, protocol.md §2); partial mutations are not possible. A
-// rejected command returns the input state untouched.
 package kernel
 
 import canonical "../canonical"
@@ -35,6 +29,7 @@ REJECT_NO_CAPABILITY: u8 : 6
 REJECT_ENTROPY_MISMATCH: u8 : 7
 REJECT_WRONG_EPOCH: u8 : 8
 REJECT_INVALID_STATE: u8 : 9 // kernel boundary guard, not protocol semantics
+REJECT_CREATURE_EXISTS: u8 : 10
 
 ROLL_MODULUS: u64 : 10_000 // basis points; catch_rate_bp is measured against this
 
@@ -256,7 +251,24 @@ domain_entries :: proc(w: ^World) -> Domain_Entries {
 	slice.sort_by(d.subjects, entry_key_less)
 	slice.sort_by(d.blockmon, entry_key_less)
 	slice.sort_by(d.permits, entry_key_less)
+	d.subjects = drop_identical_repeats(d.subjects)
+	d.blockmon = drop_identical_repeats(d.blockmon)
+	d.permits = drop_identical_repeats(d.permits)
 	return d
+}
+
+// §7: identical repeats at a key denote the mapping without the repeat.
+// Different records at one key are no mapping; subtree_root refuses them.
+drop_identical_repeats :: proc(sorted: []canonical.Tree_Entry) -> []canonical.Tree_Entry {
+	n := 0
+	for e in sorted {
+		if n > 0 && e.key == sorted[n - 1].key && canonical.bytes_eq(e.record, sorted[n - 1].record) {
+			continue
+		}
+		sorted[n] = e
+		n += 1
+	}
+	return sorted[:n]
 }
 
 entry_key_less :: proc(a: canonical.Tree_Entry, b: canonical.Tree_Entry) -> bool {
@@ -327,9 +339,8 @@ domain_entries_for :: proc(
 	return nil
 }
 
-// Four roots and their materialised paths. Bounded updates advance them; never
-// rebuilt. world_root over canonical state is the oracle: both must match
-// after each accepted transition.
+// Not rebuilt after genesis. world_root over canonical state must match it
+// after every accepted transition.
 Tracked_Commitment :: struct {
 	store: canonical.Path_Store,
 }
@@ -546,7 +557,7 @@ encode_transcript :: proc(t: ^Transcript) -> [dynamic]byte {
 transcript_hash :: proc(t: ^Transcript) -> [32]byte {
 	bytes := encode_transcript(t)
 	defer delete(bytes)
-	return canonical.protocol_hash(canonical.DOMAIN_TRANSITION, bytes[:])
+	return canonical.protocol_hash(canonical.DOMAIN_TRANSITION_V1, bytes[:])
 }
 
 // ---- entropy assignment and capture roll -----------------------------------------
@@ -555,17 +566,19 @@ transcript_hash :: proc(t: ^Transcript) -> [32]byte {
 // first round whose reveal position may follow the command, plus a fixed
 // safety margin. Round r reveals at position r * round_period, ensuring the
 // reveal is strictly after the command for every position and margin.
-assigned_round :: proc(position: u64, m: ^Manifest) -> u64 {
+assigned_round :: proc(position: u64, m: ^Manifest) -> (round: u64, ok: bool) #optional_ok {
 	assert(m.round_period > 0)
-	return position / m.round_period + 1 + m.entropy_safety_margin
+	q := position / m.round_period
+	if q >= max(u64) - m.entropy_safety_margin {
+		return 0, false
+	}
+	return q + 1 + m.entropy_safety_margin, true
 }
 
 reveal_position :: proc(round: u64, m: ^Manifest) -> u64 {
 	return round * m.round_period
 }
 
-// Domain-separated seed from (assigned round value, commitment data, manifest)
-// per protocol.md §5.
 capture_seed :: proc(entropy_value: [32]byte, permit_id: [32]byte, mh: [32]byte) -> [32]byte {
 	entropy_value, permit_id, mh := entropy_value, permit_id, mh
 	buf: [dynamic]byte
@@ -611,11 +624,6 @@ reject :: proc(w: ^World, reason: u8) -> (World, Effects) {
 	return clone_world(w), Effects{outcome = OUTCOME_REJECTED, reject_reason = reason}
 }
 
-// The Transition 1 kernel function. Totality: every well-typed command yields
-// a defined outcome; rejection leaves the state byte-identical (the returned
-// clone encodes equal to the input). Consume-on-attempt: preconditions met
-// and roll executed means the permit and one capture-class capability are
-// spent, regardless of success (protocol.md §6 coupling rule).
 transition :: proc(w: ^World, cmd: Command, ctx: Context, m: ^Manifest) -> (next: World, fx: Effects) {
 	cmd := cmd
 	if validate_world(w) != .Ok {
@@ -629,7 +637,7 @@ transition :: proc(w: ^World, cmd: Command, ctx: Context, m: ^Manifest) -> (next
 	if ctx.epoch != w.supply.epoch {
 		return reject(w, REJECT_WRONG_EPOCH)
 	}
-	if ctx.entropy_round != assigned_round(ctx.position, m) {
+	if round, ok := assigned_round(ctx.position, m); !ok || ctx.entropy_round != round {
 		return reject(w, REJECT_ENTROPY_MISMATCH) // choice-before-entropy, architecture.md §9
 	}
 
@@ -667,6 +675,12 @@ transition :: proc(w: ^World, cmd: Command, ctx: Context, m: ^Manifest) -> (next
 	if w.supply.consumed >= w.supply.minted {
 		return reject(w, REJECT_NO_CAPABILITY)
 	}
+	creature := creature_id_from_permit(cmd.permit_id)
+	for &b in w.blockmon {
+		if b.creature_id == creature {
+			return reject(w, REJECT_CREATURE_EXISTS)
+		}
+	}
 
 	// Preconditions hold: the entropy-bound attempt executes. From here the
 	// permit and one capability are consumed unconditionally.
@@ -679,7 +693,6 @@ transition :: proc(w: ^World, cmd: Command, ctx: Context, m: ^Manifest) -> (next
 	roll := roll_from_seed(seed)
 
 	if roll < u64(m.catch_rate_bp) {
-		creature := creature_id_from_permit(cmd.permit_id)
 		rec := Blockmon_Record{creature, cmd.subject, cmd.permit_id}
 		at := len(next.blockmon)
 		for &b, i in next.blockmon {

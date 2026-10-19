@@ -190,7 +190,7 @@ zero_round_period_rejected :: proc(t: ^testing.T) {
 // adjacent reasons alters no root and no encoded byte, so no vector tier or
 // commitment oracle can see it; an independent implementation has already
 // diverged here once (conformance/g0c/REPORT.md).
-PRECONDITION_ORDER :: [9]u8 {
+PRECONDITION_ORDER :: [10]u8 {
 	REJECT_INVALID_STATE,
 	REJECT_WRONG_EPOCH,
 	REJECT_ENTROPY_MISMATCH,
@@ -200,6 +200,7 @@ PRECONDITION_ORDER :: [9]u8 {
 	REJECT_WRONG_SUBJECT,
 	REJECT_PERMIT_EXPIRED,
 	REJECT_NO_CAPABILITY,
+	REJECT_CREATURE_EXISTS,
 }
 
 // One defect per position, each sufficient on its own against test_world.
@@ -223,7 +224,25 @@ apply_defect :: proc(at: int, w: ^World, cmd: ^Command, ctx: ^Context) {
 		w.permits[0].expiry_position = ctx.position // exclusive bound
 	case 8:
 		w.supply.consumed = w.supply.minted
+	case 9:
+		append(&w.blockmon, Blockmon_Record{creature_id_from_permit(PERMIT_B), SUBJECT_A, PERMIT_B})
+		w.supply.consumed += 1
+		w.supply.created += 1
 	}
+}
+
+// The permit's creature already exists in valid input. Capturing it would
+// create a duplicate key, which the kernel guard rejects as invalid state.
+@(test)
+capture_refuses_an_existing_creature :: proc(t: ^testing.T) {
+	w := test_world()
+	defer destroy_world(&w)
+	append(&w.blockmon, Blockmon_Record{creature_id_from_permit(PERMIT_B), SUBJECT_A, PERMIT_B})
+	w.supply.consumed = 1
+	w.supply.created = 1
+	testing.expect_value(t, validate_world(&w), Validity.Ok)
+	m := test_manifest()
+	expect_rejected(t, &w, test_cmd(), test_ctx(ENTROPY_SUCCESS), &m, REJECT_CREATURE_EXISTS)
 }
 
 @(test)
@@ -437,6 +456,34 @@ tracked_commitment_unmoved_when_a_later_key_fails :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, tracked_advance(&tracked, &w, &next, test_cmd(), fx), Track_Error.None)
 	testing.expect_value(t, tracked_root(&tracked), world_root(&next))
+}
+
+// Wrapping arithmetic gives position 5 round 5, revealing at the command's
+// own position. The ordering invariant requires a later reveal.
+@(test)
+an_overflowing_round_matches_no_context :: proc(t: ^testing.T) {
+	m := test_manifest()
+	m.round_period = 1
+	m.entropy_safety_margin = max(u64)
+	_, ok := assigned_round(5, &m)
+	testing.expect(t, !ok, "the round past u64 must not be representable")
+	w := test_world()
+	defer destroy_world(&w)
+	ctx := test_ctx(ENTROPY_SUCCESS)
+	ctx.position = 5
+	ctx.entropy_round = 5 // what wrapping arithmetic yields
+	expect_rejected(t, &w, test_cmd(), ctx, &m, REJECT_ENTROPY_MISMATCH)
+}
+
+@(test)
+an_identical_repeat_commits_the_mapping_without_it :: proc(t: ^testing.T) {
+	w := test_world()
+	defer destroy_world(&w)
+	repeated := clone_world(&w)
+	defer destroy_world(&repeated)
+	inject_at(&repeated.subjects, 1, repeated.subjects[0])
+	testing.expect_value(t, validate_world(&repeated), Validity.Unsorted_Subjects)
+	testing.expect_value(t, world_root(&repeated), world_root(&w))
 }
 
 @(test)

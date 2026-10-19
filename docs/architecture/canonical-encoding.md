@@ -9,9 +9,7 @@
 
 This document is the written authority an independent implementation encodes
 from. If an implementation and this document disagree, the implementation is
-wrong (`verification.md` §2). Scope is deliberately what G0a exercises today:
-primitives, records, the battle-channel transcript objects. The authenticated
-state tree is **not** defined here (Transition 1 scope; `protocol.md` §1 OPEN).
+wrong (`verification.md` §2). This document covers what the G0 corpora exercise: primitives, records, battle-channel transcript objects, Transition 1 objects (§6) and the authenticated state tree (§7).
 
 Everything here is provisional in the `protocol.md` §1 sense: pinned so bytes
 are reproducible, replaceable via migration, never silently.
@@ -23,6 +21,7 @@ are reproducible, replaceable via migration, never silently.
 - Language-independent: defined in bytes, never in any language's memory layout.
 - Deterministic: one semantic value, exactly one encoding. Decoders MUST reject
   every non-canonical form; "lenient reader" implementations are non-conforming.
+  The §6 state reader is the sole exception; it reads Transition 1 kernel input.
 - No self-description: no field tags, no padding, no alignment. Schema evolution
   happens by version-bumping the domain string, never by in-band tagging.
 - No maps: canonical encoding v0 defines no map/dictionary type. A protocol
@@ -66,7 +65,7 @@ ProtocolHash(domain, payload) = SHA-256( u8(len(domain)) ‖ domain ‖ payload 
 
 - A **domain** is 1-255 bytes of printable ASCII (`0x21`-`0x7e`), lowercase,
   and MUST end in `/v<decimal>`. The length prefix makes (domain, payload)
-  framing unambiguous: `("blockmon/aa/v0", "bb")` and `("blockmon/aa/v0b", "b")`
+  framing unambiguous: `("blockmon/aa/v1", "0b")` and `("blockmon/aa/v10", "b")`
   hash differently even though their naive concatenations collide.
 - Domains assigned in v0: `blockmon/op/v0`, `blockmon/checkpoint/v0`,
   `blockmon/state/v0`. New object kinds take new domains; semantic changes to
@@ -169,7 +168,7 @@ RejectReason   := enum { UNKNOWN_SUBJECT = 1, UNKNOWN_PERMIT = 2,
                          PERMIT_NOT_RESERVED = 3, WRONG_SUBJECT = 4,
                          PERMIT_EXPIRED = 5, NO_CAPABILITY = 6,
                          ENTROPY_MISMATCH = 7, WRONG_EPOCH = 8,
-                         INVALID_STATE = 9 }
+                         INVALID_STATE = 9, CREATURE_EXISTS = 10 }
 EffectsV0      := record { outcome: enum { CREATED = 1, ROLL_FAILED = 2, REJECTED = 3 },
                            reject_reason: optional<RejectReason>, // present iff REJECTED
                            roll: optional<u64>,            // present iff not REJECTED
@@ -181,6 +180,12 @@ TranscriptV0   := record { command_hash: hash32, prev_root: hash32,
 Canonical form: `subjects`, `blockmon` (by creature_id) and `permits` (by
 permit_id) are sorted strictly ascending byte-lexicographically; anything else
 is non-canonical and MUST be rejected.
+
+The state reader handles kernel input, leaving wire objects to the strict decoder from §2. While maintaining §2's structural rules against truncation or trailing bytes, the reader accepts forms that INVALID_STATE rejects: unsorted listings, identical repeated keys, and unassigned enum discriminants.
+
+It rejects listings that denote no mapping. This refusal occurs before any transition, so it produces no outcome, commitment, or transcript. The kernel processes the listing as read and commits to the mapping it denotes. Re-running an INVALID_STATE rejection reads the input state in the same way.
+
+A `BlockmonRecord` has no validity rule beyond §7's identifier binding. Its `owner` need not be an admitted subject, and its `creature_id` need not derive from its `origin_permit`.
 
 Hashes and derivations, all via §3's construction:
 
@@ -199,11 +204,15 @@ reveal_position(r) = r * round_period      // strictly after p for every p, by c
 
 The `world_root` line above is the archived v0 derivation, kept because the v0 corpus is evidence of v0 semantics. New state commits through the authenticated state tree of §7, which supersedes it.
 
+The `transcript_hash` above is the archived v0 derivation. In `blockmon/world/v1`, the transcript's `prev_root` and `next_root` are §7 world roots, and `transcript_hash = ProtocolHash("blockmon/transition/v1", encode(TranscriptV0))`.
+
+`assigned_round` is computed exactly. If a round exceeds 2^64 − 1, it matches no `u64` `context.entropy_round`, causing the command to reject with ENTROPY_MISMATCH. A `catch_rate_bp` above 10000 is valid because every roll falls below it, so every executed attempt captures.
+
 Precondition order (normative): the kernel evaluates exactly the checks below
 in this order, and the first failure is the rejection reason. Every failure is
 a defined rejection: it consumes nothing, returns the input state
 byte-identical, and surfaces as the REJECTED outcome, never as a crash or an
-implementation error (totality, `protocol.md` §2). Reasons 1-8 are protocol
+implementation error (totality, `protocol.md` §2). Reasons 1-8 and 10 are protocol
 semantics; INVALID_STATE (9) is the kernel's totality guard for invalid
 boundary input (malformed state or manifest), which canonical execution never
 produces.
@@ -223,14 +232,16 @@ PERMIT_NOT_RESERVED  permit.status ≠ RESERVED
 WRONG_SUBJECT        permit.subject ≠ command.subject
 PERMIT_EXPIRED       position ≥ permit.expiry_position (exclusive bound)
 NO_CAPABILITY        supply.consumed ≥ supply.minted
+CREATURE_EXISTS      creature_id(command.permit_id) is already a blockmon key
 ```
+
+Executed attempts set the commanded permit's status to CONSUMED and increment `supply.consumed`. CREATED additionally inserts `BlockmonRecord { creature_id, owner = command.subject, origin_permit = command.permit_id }` and increments `supply.created`; ROLL_FAILED writes nothing else.
+
+INVALID_STATE rejections are decided by re-running the transition against the complete input state, not by any proof.
 
 Provisional stand-ins, explicitly NOT frozen architecture:
 
-- `world_root` is a **flat commitment** over the canonical state bytes. The
-  authenticated state tree remains OPEN in the protocol docket; this stand-in
-  proves deterministic root update, not membership. Replacing it with the real
-  tree is a migration (`protocol.md` §11).
+- The flat `world_root` over canonical state bytes is the archived v0 stand-in. The authenticated state tree in §7 replaced it, a migration in the `protocol.md` §11 sense.
 - `assigned_round`'s shape and constants, the capture seed derivation,
   `catch_rate_bp` and `creature_id`'s derivation are prototype pins of
   mechanisms `protocol.md` §5 and the ruleset own.
@@ -265,14 +276,11 @@ alter every subject leaf.
 Domains assigned here: `blockmon/smt-leaf/v0`, `blockmon/smt-node/v0`,
 `blockmon/smt-empty/v0`, `blockmon/world/v1`.
 
-**Domain state.** State is a finite mapping from 32-byte key to record, not
-a sequence. Every key is unique; every record is valid for its domain; where
-a record carries its own identifier, that identifier equals the tree key.
-The supply domain admits exactly the zero key. State violating any of these
-is malformed and, under Transition 1, falls in the INVALID_STATE class of
-§6. Ordering is a property of representation, not state: where an ordered
-representation is required, for encoding or construction, keys appear
-strictly ascending byte-lexicographically.
+**Domain state.** State maps 32-byte keys to records. It is a finite mapping, not a sequence, so no key appears twice. Every record is valid for its domain. If a record carries its own identifier, that identifier equals the tree key. The supply domain admits exactly the zero key. State violating any of these is malformed and, under Transition 1, falls in the INVALID_STATE class of §6. Ordering is a property of representation, not state. Where an ordered representation is required, for encoding or construction, keys appear strictly ascending byte-lexicographically.
+
+Malformed state carries a commitment: `encode(record)` writes each enum field as the discriminant it holds, assigned or not. A rejected transition therefore always has an input commitment to return. Decoders and proofs refuse an unassigned discriminant, and Transition 1 rejects state that holds one; the commitment does not.
+
+An identical repeated key denotes the mapping without the repeat, but its listing is non-canonical, so Transition 1 rejects it as INVALID_STATE. A key repeated with different records denotes no mapping, and the §6 state reader refuses it.
 
 **Construction.** A domain tree is a sparse Merkle tree of fixed depth 256,
 keyed by the record's 32-byte identifier. Leaves sit at level 0; the root is
@@ -309,9 +317,7 @@ world_root = ProtocolHash("blockmon/world/v1", encode(WorldCommitmentV1))
 ```
 
 The field set and its order are constitutional: admitting a further ratified
-domain is a `protocol.md` §11 migration, never a ProtocolManifest field. The
-settled artefact's `supply_commitment` is this same root, so
-`supply_commitment == supply_root` holds for every valid settled artefact.
+domain is a `protocol.md` §11 migration, never a ProtocolManifest field. For every valid settled artefact, `supply_commitment == supply_root` holds, because `supply_commitment` is the supply domain's root.
 
 ```
 SUBJECT   -> WorldCommitmentV1.subject_root
@@ -402,6 +408,8 @@ Rejection has two classes, and they are distinct outcomes:
 | Malformed | sibling count ≠ 256; key length ≠ 32; unassigned `tag`; a supply key other than 32 zero bytes; record bytes that fail strict exact-consume decoding (§2); a record identifier that does not equal the proof key, where the record carries one |
 | Well-formed but invalid | recomputed root ≠ claimed domain root; the claimed domain root does not appear at its assigned position in `WorldCommitmentV1`; an update's old value does not climb to the claimed pre-state domain root |
 
+Malformed takes precedence. Because shape and admissibility are checked before the anchoring climb, an update that is both malformed and unanchored is rejected as Malformed.
+
 **Cost.** Committing one key costs one leaf hash and 256 node hashes,
 independent of domain size. A state-changing transition costs that per key
 touched, plus one `blockmon/world/v1` recomputation after its
@@ -412,7 +420,7 @@ separately: a verifier holding no state climbs one proof per authenticated
 read, which is not part of a transition's execution cost.
 An update that checks its anchor climbs twice, costing a verifier without
 domain state two leaf hashes and 512 node hashes per key. A producer with the
-domain state already knows the pre-state root and climbs once. Both costs are
+domain state already knows the pre-state root and climbs once. That is the producer's minimum. Implementations may additionally anchor each update at the verifier's cost and spend further depth-bounded work maintaining their representation. Both costs are
 independent of domain size, as bounded by `protocol.md` §2. The representation must bound its work by tree depth, not the occupied
 population. Since keys may share up to 255 leading bits, any metric based on
 population distribution is an expectation, not a bound.

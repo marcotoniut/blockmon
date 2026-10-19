@@ -2,9 +2,8 @@
 // blockmon/world/v1. Emits conformance/vectors/g0a-t1-v1-expansion.json.
 // Authority: canonical-encoding.md §§6-7, protocol.md §§2,5,6,10.
 //
-// conformance/README.md and the corpus "records" field state what this tier
-// records and omits. The omissions are invisible in this code: a value absent
-// from every case leaves nothing to see.
+// conformance/README.md and the corpus "records" field define what this
+// tier records and omits.
 package g0a_gen_t1_v1
 
 import canonical "../../protocol/canonical"
@@ -190,6 +189,13 @@ Defect :: enum {
 	Permit_Expired_At_Bound,
 	Permit_Expired_Past_Bound,
 	No_Capability,
+	Creature_Exists,
+	Invalid_State_Status_Unassigned,
+	Invalid_State_Class_Unassigned,
+	Invalid_State_Repeated_Subject,
+	Invalid_State_Repeated_Blockmon,
+	Invalid_State_Repeated_Permit,
+	Invalid_State_Enum_Elsewhere,
 }
 
 defect_reason :: proc(d: Defect) -> u8 {
@@ -204,6 +210,12 @@ defect_reason :: proc(d: Defect) -> u8 {
 	     .Invalid_State_Unsorted_Blockmon,
 	     .Invalid_State_Unsorted_Permits,
 	     .Invalid_State_Bad_Enum,
+	     .Invalid_State_Status_Unassigned,
+	     .Invalid_State_Class_Unassigned,
+	     .Invalid_State_Repeated_Subject,
+	     .Invalid_State_Repeated_Blockmon,
+	     .Invalid_State_Repeated_Permit,
+	     .Invalid_State_Enum_Elsewhere,
 	     .Invalid_Manifest_Round_Period:
 		return kernel.REJECT_INVALID_STATE
 	case .Wrong_Epoch:
@@ -222,6 +234,8 @@ defect_reason :: proc(d: Defect) -> u8 {
 		return kernel.REJECT_PERMIT_EXPIRED
 	case .No_Capability:
 		return kernel.REJECT_NO_CAPABILITY
+	case .Creature_Exists:
+		return kernel.REJECT_CREATURE_EXISTS
 	}
 	return 0
 }
@@ -264,6 +278,26 @@ apply_defect :: proc(
 		slice.swap(w.permits[:], 0, 1)
 	case .Invalid_State_Bad_Enum:
 		w.permits[pi].status = 0 // unassigned discriminant
+	case .Invalid_State_Status_Unassigned:
+		w.permits[pi].status = 3 + w.permits[pi].permit_id[0] % 253
+	case .Invalid_State_Repeated_Subject:
+		inject_at(&w.subjects, 1, w.subjects[0])
+	case .Invalid_State_Repeated_Blockmon:
+		if len(w.blockmon) == 0 {
+			return false
+		}
+		inject_at(&w.blockmon, 1, w.blockmon[0])
+	case .Invalid_State_Repeated_Permit:
+		inject_at(&w.permits, 1, w.permits[0])
+	case .Invalid_State_Enum_Elsewhere:
+		other := pi == 0 ? len(w.permits) - 1 : 0
+		if other == pi {
+			return false
+		}
+		w.permits[other].status = 0
+	case .Invalid_State_Class_Unassigned:
+		class := w.permits[pi].permit_id[1]
+		w.permits[pi].encounter_class = class == kernel.ENCOUNTER_COMMON ? 0 : class
 	case .Invalid_Manifest_Round_Period:
 		m.round_period = 0
 	case .Wrong_Epoch:
@@ -306,49 +340,26 @@ apply_defect :: proc(
 			w.supply.created = w.supply.consumed
 			resize(&w.blockmon, int(w.supply.created))
 		}
+	case .Creature_Exists:
+		// Supply counts the planted record, so no earlier check fires.
+		if w.supply.consumed + 2 > w.supply.minted {
+			return false
+		}
+		creature := kernel.creature_id_from_permit(cmd.permit_id)
+		at := len(w.blockmon)
+		for &b, i in w.blockmon {
+			if kernel.hash32_less(creature, b.creature_id) {
+				at = i
+				break
+			}
+		}
+		// A planted record differs from a capture in origin and, if another subject is present, in owner. A kernel can locate it only by key.
+		owner := w.subjects[0] == cmd.subject ? w.subjects[len(w.subjects) - 1] : w.subjects[0]
+		inject_at(&w.blockmon, at, kernel.Blockmon_Record{creature, owner, [32]byte{0 ..= 31 = 0xC7}})
+		w.supply.consumed += 1
+		w.supply.created += 1
 	}
 	return true
-}
-
-// CE §2: an unassigned enum discriminant MUST be rejected, so a state carrying
-// one has no canonical encoding and therefore no commitment. That is a real
-// outcome of §6's INVALID_STATE class, not a case to avoid: a second
-// implementation must refuse it too rather than invent a root.
-world_encodable :: proc(w: ^kernel.World) -> bool {
-	for &p in w.permits {
-		if p.encounter_class != kernel.ENCOUNTER_COMMON {
-			return false
-		}
-		if p.status != kernel.PERMIT_RESERVED && p.status != kernel.PERMIT_CONSUMED {
-			return false
-		}
-	}
-	return true
-}
-
-// Field equality, for the states canonical bytes cannot describe.
-world_equal :: proc(a: ^kernel.World, b: ^kernel.World) -> bool {
-	if len(a.subjects) != len(b.subjects) ||
-	   len(a.blockmon) != len(b.blockmon) ||
-	   len(a.permits) != len(b.permits) {
-		return false
-	}
-	for s, i in a.subjects {
-		if s != b.subjects[i] {
-			return false
-		}
-	}
-	for x, i in a.blockmon {
-		if x != b.blockmon[i] {
-			return false
-		}
-	}
-	for x, i in a.permits {
-		if x != b.permits[i] {
-			return false
-		}
-	}
-	return a.supply == b.supply
 }
 
 // ---- self-checks ------------------------------------------------------------
@@ -362,12 +373,6 @@ check_conservation :: proc(
 	fx: kernel.Effects,
 ) {
 	if fx.outcome == kernel.OUTCOME_REJECTED {
-		if !world_encodable(before) {
-			if !world_equal(before, after) {
-				die("%s: a rejection changed the state", name)
-			}
-			return
-		}
 		bb := kernel.encode_world(before)
 		defer delete(bb)
 		ab := kernel.encode_world(after)
@@ -418,10 +423,6 @@ check_bounded_path :: proc(
 	cmd: kernel.Command,
 	fx: kernel.Effects,
 ) {
-	if kernel.validate_world(before) != .Ok {
-		return // no pre-state commitment to advance from
-	}
-	bounded_checked += 1
 	tracked := kernel.track_world(before)
 	defer kernel.untrack(&tracked)
 	if err := kernel.tracked_advance(&tracked, before, after, cmd, fx); err != .None {
@@ -499,9 +500,6 @@ effects_json :: proc(fx: kernel.Effects) -> string {
 }
 
 commitment_json :: proc(w: ^kernel.World) -> string {
-	if !world_encodable(w) {
-		return "null"
-	}
 	d := kernel.domain_entries(w)
 	defer kernel.free_domain_entries(&d)
 	s_root, b_root, e_root, p_root := kernel.domain_roots(&d)
@@ -520,10 +518,7 @@ commitment_json :: proc(w: ^kernel.World) -> string {
 
 emitted := 0
 by_outcome: [4]int
-by_reason: [10]int
-// An invalid pre-state has no commitment to advance, so that check skips those
-// cases. Counted, because a skip nobody counts is a check nobody runs.
-bounded_checked := 0
+by_reason: [11]int
 
 emit_case :: proc(
 	name: string,
@@ -550,10 +545,14 @@ emit_case :: proc(
 	defer delete(e1)
 	e2 := kernel.encode_effects(&fx2)
 	defer delete(e2)
-	if !slice.equal(e1[:], e2[:]) || !world_equal(&next, &again) {
+	n1 := kernel.encode_world(&next)
+	defer delete(n1)
+	n2 := kernel.encode_world(&again)
+	defer delete(n2)
+	if !slice.equal(e1[:], e2[:]) || !slice.equal(n1[:], n2[:]) {
 		die("%s: the transition is not deterministic", name)
 	}
-	if world_encodable(&next) && kernel.world_root(&next) != kernel.world_root(&again) {
+	if kernel.world_root(&next) != kernel.world_root(&again) {
 		die("%s: the post-state commitment is not deterministic", name)
 	}
 
@@ -563,14 +562,8 @@ emit_case :: proc(
 	cmd, ctx := cmd, ctx
 	mh := kernel.manifest_hash(m)
 	ch := kernel.command_hash(&cmd)
-	// TranscriptV0 carries both world roots, so a state without a commitment
-	// has no transcript hash either.
-	transcript := "null"
-	if world_encodable(w) && world_encodable(&next) {
-		tr := kernel.make_transcript(w, &next, cmd, fx)
-		th := kernel.transcript_hash(&tr)
-		transcript = fmt.tprintf("\"%s\"", hx(th[:]))
-	}
+	tr := kernel.make_transcript(w, &next, cmd, fx)
+	th := kernel.transcript_hash(&tr)
 
 	if !first_case {
 		emit(",\n")
@@ -578,7 +571,7 @@ emit_case :: proc(
 	first_case = false
 	emit("    {{\"name\": \"%s\"", name)
 	emit(
-		", \"manifest\": {{\"round_period\": \"%d\", \"entropy_safety_margin\": \"%d\", \"catch_rate_bp\": %d}}",
+		", \"manifest\": {{\"round_period\": \"%d\", \"entropy_safety_margin\": \"%d\", \"catch_rate_bp\": \"%d\"}}",
 		m.round_period,
 		m.entropy_safety_margin,
 		m.catch_rate_bp,
@@ -602,7 +595,7 @@ emit_case :: proc(
 	emit(", \"effects\": %s", effects_json(fx))
 	emit(", \"output_state\": %s", world_json(&next))
 	emit(", \"output_commitment\": %s", commitment_json(&next))
-	emit(", \"transcript_hash\": %s}}", transcript)
+	emit(", \"transcript_hash\": \"%s\"}}", hx(th[:]))
 
 	emitted += 1
 	by_outcome[fx.outcome] += 1
@@ -629,7 +622,7 @@ reserved_index :: proc(r: ^Rng, w: ^kernel.World) -> int {
 
 // ---- the sweep --------------------------------------------------------------
 
-// INVALID_STATE has nine variants and so nine times the cases: each is a
+// INVALID_STATE has fifteen variants and so fifteen times the cases: each is a
 // distinct clause of §6's valid-input definition, not a repeat.
 ALL_DEFECTS := [?]Defect {
 	.Invalid_State_Created,
@@ -651,6 +644,13 @@ ALL_DEFECTS := [?]Defect {
 	.Permit_Expired_At_Bound,
 	.Permit_Expired_Past_Bound,
 	.No_Capability,
+	.Creature_Exists,
+	.Invalid_State_Status_Unassigned,
+	.Invalid_State_Class_Unassigned,
+	.Invalid_State_Repeated_Subject,
+	.Invalid_State_Repeated_Blockmon,
+	.Invalid_State_Repeated_Permit,
+	.Invalid_State_Enum_Elsewhere,
 }
 
 sweep_case :: proc(r: ^Rng, name: string, d: Defect) {
@@ -666,6 +666,77 @@ sweep_case :: proc(r: ^Rng, name: string, d: Defect) {
 		return
 	}
 	emit_case(name, &w, cmd, ctx, &m, defect_reason(d))
+}
+
+// §6's order decides the reason when multiple checks fail. Each adjacent pair
+// gets cases holding both defects; the later applies first so the earlier's
+// value stands where both write one field.
+PRECEDENCE := [?]Defect {
+	.Invalid_State_Created,
+	.Wrong_Epoch,
+	.Entropy_Mismatch_High,
+	.Unknown_Subject,
+	.Unknown_Permit,
+	.Permit_Not_Reserved,
+	.Wrong_Subject,
+	.Permit_Expired_At_Bound,
+	.No_Capability,
+	.Creature_Exists,
+}
+CASES_PER_PAIR :: 2
+
+pair_case :: proc(r: ^Rng, name: string, earlier: Defect, later: Defect) {
+	w := valid_world(r)
+	defer kernel.destroy_world(&w)
+	m := varied_manifest(r)
+	pi := reserved_index(r, &w)
+	if pi < 0 {
+		return
+	}
+	cmd, ctx := valid_attempt(r, &w, pi, &m)
+	if !apply_defect(later, &w, &cmd, &ctx, &m, pi) ||
+	   !apply_defect(earlier, &w, &cmd, &ctx, &m, pi) {
+		return
+	}
+	emit_case(name, &w, cmd, ctx, &m, defect_reason(earlier))
+}
+
+// §6 succeeds iff roll < catch_rate_bp. The rate feeds both the manifest hash
+// and the roll, so a rate equal to its own roll is searched for, not set.
+// Equality means failure; one above means success.
+roll_boundary_cases :: proc(r: ^Rng) {
+	w := valid_world(r)
+	defer kernel.destroy_world(&w)
+	base := varied_manifest(r)
+	cmd, ctx := valid_attempt(r, &w, reserved_index(r, &w), &base)
+	at_rate, below_rate := false, false
+	for !at_rate || !below_rate {
+		ctx.entropy_value = rand_h32(r)
+		for c in u32(1) ..= 10_000 {
+			m := base
+			m.catch_rate_bp = c
+			roll := kernel.roll_from_seed(
+				kernel.capture_seed(ctx.entropy_value, cmd.permit_id, kernel.manifest_hash(&m)),
+			)
+			equal := roll == u64(c)
+			if !(equal && !at_rate) && !(roll + 1 == u64(c) && !below_rate) {
+				continue
+			}
+			next, fx := kernel.transition(&w, cmd, ctx, &m)
+			kernel.destroy_world(&next)
+			want := equal ? kernel.OUTCOME_ROLL_FAILED : kernel.OUTCOME_CREATED
+			if fx.outcome != want {
+				die("roll %d against rate %d: outcome %d, want %d", roll, c, fx.outcome, want)
+			}
+			if equal {
+				emit_case("t1v1-boundary-roll-equals-rate", &w, cmd, ctx, &m, 0)
+				at_rate = true
+			} else {
+				emit_case("t1v1-boundary-roll-one-below-rate", &w, cmd, ctx, &m, 0)
+				below_rate = true
+			}
+		}
+	}
 }
 
 main :: proc() {
@@ -732,6 +803,50 @@ main :: proc() {
 		emit_case("t1v1-boundary-empty-blockmon-roll-failed", &w, cmd, ctx, &never, 0)
 	}
 
+	for i in 0 ..< len(PRECEDENCE) - 1 {
+		earlier, later := PRECEDENCE[i], PRECEDENCE[i + 1]
+		before := emitted
+		for k in 0 ..< CASES_PER_PAIR {
+			pair_case(&r, fmt.tprintf("t1v1-order-%v-before-%v-%02d", earlier, later, k), earlier, later)
+		}
+		if emitted == before {
+			die("no case pins %v before %v", earlier, later)
+		}
+	}
+	roll_boundary_cases(&r)
+
+	// A margin that pushes the assigned round past u64. A wrapping implementation
+	// accepts the wrapped round, which reveals at the command's own position.
+	{
+		w := valid_world(&r)
+		defer kernel.destroy_world(&w)
+		m := kernel.Manifest {
+			round_period          = 1,
+			entropy_safety_margin = max(u64),
+			catch_rate_bp         = 10_000,
+		}
+		cmd, ctx := valid_attempt(&r, &w, reserved_index(&r, &w), &m)
+		ctx.entropy_round = ctx.position
+		emit_case("t1v1-boundary-round-overflow", &w, cmd, ctx, &m, kernel.REJECT_ENTROPY_MISMATCH)
+	}
+
+	{
+		w := valid_world(&r)
+		defer kernel.destroy_world(&w)
+		m := varied_manifest(&r)
+		cmd, ctx := valid_attempt(&r, &w, reserved_index(&r, &w), &m)
+		clear(&w.subjects)
+		emit_case("t1v1-boundary-empty-subjects", &w, cmd, ctx, &m, kernel.REJECT_UNKNOWN_SUBJECT)
+	}
+	{
+		w := valid_world(&r)
+		defer kernel.destroy_world(&w)
+		m := varied_manifest(&r)
+		cmd, ctx := valid_attempt(&r, &w, reserved_index(&r, &w), &m)
+		clear(&w.permits)
+		emit_case("t1v1-boundary-empty-permits", &w, cmd, ctx, &m, kernel.REJECT_UNKNOWN_PERMIT)
+	}
+
 	emit("\n  ],\n")
 	emit(
 		"  \"coverage\": {{\"cases\": %d, \"created\": %d, \"roll_failed\": %d, \"rejected\": %d, \"rejected_by_reason\": [",
@@ -745,17 +860,13 @@ main :: proc() {
 	}
 	emit("]}}\n}}\n")
 
-	// Missing outcome or reason means this is not the right tier; abort instead of shipping.
 	if by_outcome[kernel.OUTCOME_CREATED] == 0 || by_outcome[kernel.OUTCOME_ROLL_FAILED] == 0 {
 		die("both accepted outcomes must appear")
 	}
-	for reason in 1 ..= 9 {
+	for reason in 1 ..< len(by_reason) {
 		if by_reason[reason] == 0 {
 			die("reject reason %d is not covered", reason)
 		}
-	}
-	if bounded_checked == 0 {
-		die("no case reached the bounded-path check")
 	}
 
 	fmt.print(strings.to_string(out))

@@ -255,7 +255,7 @@ spec_roll :: proc(entropy: [32]byte, permit: [32]byte, mh: [32]byte) -> u64 {
 Counts :: struct {
 	created:     u64,
 	roll_failed: u64,
-	rejected:    [10]u64, // by reason
+	rejected:    [11]u64, // by reason
 }
 
 counts: Counts
@@ -303,13 +303,9 @@ check_transition :: proc(
 	ctx: kernel.Context,
 	m: ^kernel.Manifest,
 	expect_reason: u8,
-	structural_only := false,
 ) {
 	prev_valid := kernel.validate_world(w) == .Ok
-	prev_bytes: [dynamic]byte
-	if !structural_only {
-		prev_bytes = kernel.encode_world(w)
-	}
+	prev_bytes := kernel.encode_world(w)
 
 	next, fx := kernel.transition(w, cmd, ctx, m)
 
@@ -343,11 +339,10 @@ check_transition :: proc(
 	// A transcript carries two roots and a full derivation is O(state), so one
 	// comparison costs four. State-level checks stay at full budget; full
 	// transcript coverage returns when the bounded path replaces derivation.
-	if !structural_only && prev_valid {
+	if prev_valid {
 		transcript_seen += 1
 	}
-	if !structural_only &&
-	   prev_valid &&
+	if prev_valid &&
 	   transcript_seen % transcript_stride == 0 &&
 	   transcripts_compared < TRANSCRIPT_CASES_PER_PHASE {
 		transcripts_compared += 1
@@ -368,16 +363,10 @@ check_transition :: proc(
 	if fx.outcome == kernel.OUTCOME_REJECTED {
 		counts.rejected[fx.reject_reason] += 1
 		// rejection purity: canonical bytes unchanged, nothing consumed
-		if structural_only {
-			if !world_equal(w, &next) {
-				fail("rejection mutated state (structural)")
-			}
-		} else {
-			nb := kernel.encode_world(&next)
-			if !slice.equal(prev_bytes[:], nb[:]) {
-				fail("rejection mutated canonical state bytes, reason=%d", fx.reject_reason)
-				dump_inputs(w, cmd, ctx, m)
-			}
+		nb := kernel.encode_world(&next)
+		if !slice.equal(prev_bytes[:], nb[:]) {
+			fail("rejection mutated canonical state bytes, reason=%d", fx.reject_reason)
+			dump_inputs(w, cmd, ctx, m)
 		}
 	} else {
 		// consume-on-attempt: exactly one capability, permit consumed
@@ -522,7 +511,26 @@ single_case :: proc(r: ^Rng) {
 		if kernel.validate_world(&w) == .Ok {
 			fail("corruption not detected by validate_world")
 		}
-		check_transition(&w, cmd, ctx, &m, kernel.REJECT_INVALID_STATE, structural_only = true)
+		check_transition(&w, cmd, ctx, &m, kernel.REJECT_INVALID_STATE)
+	case 9:
+		// the commanded permit's creature already exists; both counters rise
+		// with it so that no other check fires first
+		if w.supply.consumed + 2 > w.supply.minted {
+			check_transition(&w, cmd, ctx, &m, 0)
+			break
+		}
+		creature := kernel.creature_id_from_permit(cmd.permit_id)
+		at := len(w.blockmon)
+		for &b, i in w.blockmon {
+			if kernel.hash32_less(creature, b.creature_id) {
+				at = i
+				break
+			}
+		}
+		inject_at(&w.blockmon, at, kernel.Blockmon_Record{creature, cmd.subject, cmd.permit_id})
+		w.supply.consumed += 1
+		w.supply.created += 1
+		check_transition(&w, cmd, ctx, &m, kernel.REJECT_CREATURE_EXISTS)
 	case:
 		// valid attempt (roughly half of all cases)
 		check_transition(&w, cmd, ctx, &m, 0)

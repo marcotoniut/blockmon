@@ -3,27 +3,16 @@
   "commitment_version": "blockmon/world/v1",
   "derivation": "hand-derived from canonical-encoding.md \u00a7\u00a72, 3, 6, 7 before the kernel moved to world/v1; the archived v0 flat roots are not carried over, and no value here comes from the kernel",
   "scenario_source": "input_state and output_state are the three archived Transition 1 scenarios of g0a-vectors.json, which remains historical evidence for the superseded flat-root semantics",
-  "bound": {
-    "max_keys_read": 3,
-    "max_keys_written": 3,
-    "cost_evidence": "hash counts are measured by conformance/bounded-access; a count recorded here would be read by nobody and restated by anyone who did"
-  },
   "checks": [
     {
       "name": "t1-capture-success",
       "outcome": 1,
       "rejected": false,
-      "reads": [
-        "subject:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
-      ],
       "writes": [
         "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "supply:0x0000000000000000000000000000000000000000000000000000000000000000",
         "blockmon:0x0773143bb4b3f066fd7d7b33b9338c37c07e0b5b3f630221d5c32733d5909ddc"
       ],
-      "keys_read": 3,
       "keys_written": 3,
       "roots_unchanged": [
         "subject_root"
@@ -124,16 +113,10 @@
       "name": "t1-capture-roll-failed",
       "outcome": 2,
       "rejected": false,
-      "reads": [
-        "subject:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
-      ],
       "writes": [
         "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
       ],
-      "keys_read": 3,
       "keys_written": 2,
       "roots_unchanged": [
         "blockmon_root",
@@ -229,13 +212,7 @@
       "name": "t1-rejected-expired",
       "outcome": 3,
       "rejected": true,
-      "reads": [
-        "subject:0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "encounter:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "supply:0x0000000000000000000000000000000000000000000000000000000000000000"
-      ],
       "writes": [],
-      "keys_read": 3,
       "keys_written": 0,
       "roots_unchanged": [
         "blockmon_root",

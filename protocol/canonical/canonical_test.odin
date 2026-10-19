@@ -199,8 +199,8 @@ absence_empty_and_the_domain_boundary_stay_distinct :: proc(t: ^testing.T) {
 
 	testing.expect(t, len(absent) != len(empty_seq), "absent and empty-seq differ in width")
 
-	shifted := protocol_hash("blockmon/aa/v0", transmute([]byte)string("bb"))
-	unshifted := protocol_hash("blockmon/aa/v0b", transmute([]byte)string("b"))
+	shifted := protocol_hash("blockmon/aa/v1", transmute([]byte)string("0b"))
+	unshifted := protocol_hash("blockmon/aa/v10", transmute([]byte)string("b"))
 	testing.expect(t, shifted != unshifted, "the domain boundary shift must change the hash")
 
 	same_payload_a := protocol_hash(DOMAIN_OP, transmute([]byte)string("x"))

@@ -29,13 +29,14 @@ that admits them. Its rejections cover both classes, including two rejected
 updates that no accepted case can demonstrate. The generator asserts
 equivalence between the bounded path and a full derivation before emission, and
 the cleanroom crate re-derives every value from the spec. The Transition 1 v1 expansion tier is generated alongside the hand-derived one.
-It covers 272 cases across both accepted outcomes and all nine reject reasons,
+It covers 344 cases across both accepted outcomes and all ten reject reasons,
 recording only inputs and protocol-visible commitments. It excludes sibling
 sequences, leaf hashes, capture seeds, and WorldCommitmentV1 preimages; §7 does
 not include these in protocol objects, and providing them would expose the
 derivations the corpus is meant to test. The generator rejects any case where it
 cannot first verify the outcome, §10 conservation identities, replay, or
 bounded-path agreement.
+Its cases cover every adjacent pair in §6's precedence order and both sides of the roll threshold.
 `gen/` stays in the tree because it produced
 the archive, but no gate runs it: a generator that can no longer reproduce the
 archive must not be able to overwrite it.

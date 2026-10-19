@@ -17,6 +17,7 @@ DOMAIN_WORLD :: "blockmon/world/v0"
 DOMAIN_MANIFEST :: "blockmon/manifest/v0"
 DOMAIN_CAPTURE_CMD :: "blockmon/capture-cmd/v0"
 DOMAIN_TRANSITION :: "blockmon/transition/v0"
+DOMAIN_TRANSITION_V1 :: "blockmon/transition/v1"
 DOMAIN_CAPTURE_ROLL :: "blockmon/capture-roll/v0"
 DOMAIN_CREATURE_ID :: "blockmon/creature-id/v0"
 
@@ -70,7 +71,6 @@ enc_hash32 :: proc(buf: ^[dynamic]byte, v: []byte) {
 }
 
 enc_enum :: proc(buf: ^[dynamic]byte, v: u8) {
-	assert(v != 0, "enum discriminant 0 is invalid on the wire")
 	append(buf, v)
 }
 
